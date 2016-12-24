@@ -13,7 +13,6 @@ module.exports = class SettingsModals extends BaseView
 
     events:
         'keyup': 'hideOnEscape'
-        'click a#export': 'exportCalendar'
         'click #show-password': 'showPassword'
         'click #hide-password': 'hidePassword'
         'click .modal-close': 'close'
@@ -36,13 +35,7 @@ module.exports = class SettingsModals extends BaseView
     afterRender: ->
         @$el.attr 'tabindex', '0'
 
-        @calendar = new ComboBox
-            el: @$('#export-calendar')
-            source: app.calendars.toAutoCompleteSource()
-
         @$('#importviewplaceholder').append new ImportView().render().$el
-
-        # Show the modal.
         @$el.modal 'show'
 
         # Manage global interactions to close it.
@@ -68,16 +61,6 @@ module.exports = class SettingsModals extends BaseView
     # Close the modal.
     close: ->
         @$el.modal 'hide'
-
-
-    exportCalendar: ->
-        calendarId = @calendar.value()
-        if calendarId in app.calendars.toArray()
-            encodedName = encodeURIComponent calendarId
-            window.location = "export/#{encodedName}.ics"
-
-        else
-            alert t 'please select existing calendar'
 
 
     # creates a placeholder for the password
