@@ -8150,7 +8150,6 @@ afocus,
 -webkit-appearancenone
 }
 .well {
-  -webkit-border-radius: 0;
   border-radius: 0;
   background: #fff;
   -webkit-box-shadow: none;
@@ -8165,9 +8164,7 @@ afocus,
   -webkit-box-shadow: none;
   box-shadow: none;
   text-shadow: none;
-  -webkit-border-radius: 0;
   border-radius: 0;
-  -webkit-border-radius: 3px;
   border-radius: 3px;
   -webkit-transition: background 0.2s;
   -moz-transition: background 0.2s;
@@ -8306,7 +8303,6 @@ input,
 select,
 textarea {
   border: 1px solid #33a6ff;
-  -webkit-border-radius: 0;
   border-radius: 0;
   font-family: 'Source Sans Pro', sans-serif;
 }
@@ -8328,7 +8324,6 @@ textarea:active {
   -webkit-box-shadow: none;
   box-shadow: none;
   text-shadow: none;
-  -webkit-border-radius: 0;
   border-radius: 0;
   font-family: 'Source Sans Pro', sans-serif;
   font-weight: bold;
@@ -8391,7 +8386,6 @@ textarea:active {
   padding: 1.2rem;
   background-color: #eceff3;
   border-bottom: 1px solid #c8d5df;
-  -webkit-border-radius: 6px 6px 0 0;
   border-radius: 6px 6px 0 0;
   color: #32363f;
 }
@@ -8406,7 +8400,6 @@ textarea:active {
 .modal-body select,
 .modal-body textarea {
   border: 1px solid #c8d5df;
-  -webkit-border-radius: 0;
   border-radius: 0;
 }
 .modal-body input:hover,
@@ -8468,14 +8461,12 @@ textarea:active {
   padding: 0;
   width: 1.5em;
   height: 1.5em;
-  -webkit-border-radius: 100%;
   border-radius: 100%;
 }
 #event-modal {
   padding: 0;
 }
 #event-modal .btn {
-  -webkit-border-radius: 5px;
   border-radius: 5px;
 }
 #event-modal .alert {
@@ -8524,7 +8515,6 @@ textarea:active {
   width: 24px;
   height: 24px;
   line-height: 24px;
-  -webkit-border-radius: 50%;
   border-radius: 50%;
   text-align: center;
   vertical-align: middle;
@@ -8585,7 +8575,6 @@ textarea:active {
   max-width: 165px;
   vertical-align: middle;
   text-align: center;
-  -webkit-border-radius: 4px;
   border-radius: 4px;
   font-size: 11px;
 }
@@ -8607,7 +8596,6 @@ textarea:active {
   margin-right: 10px;
 }
 #event-modal a.btn.rrule-show {
-  -webkit-border-radius: 0px;
   border-radius: 0px;
   padding: 5px;
 }
@@ -8633,7 +8621,6 @@ textarea:active {
   border: 1px solid #92a0b2;
 }
 #event-modal #addguest.btn {
-  -webkit-border-radius: 0px;
   border-radius: 0px;
   padding: 5px;
 }
@@ -8804,7 +8791,6 @@ aside.drawer ul#menuitems li.tagmenuitem {
   align-items: center;
   margin-left: 0;
   padding: 0.5rem 0.125rem;
-  -webkit-border-radius: 3px;
   border-radius: 3px;
 }
 aside.drawer ul#menuitems li.tagmenuitem:hover {
@@ -8838,7 +8824,6 @@ aside.drawer ul#menuitems li.tagmenuitem .badge {
   height: 1rem;
   padding: 0;
   margin-right: 0.8em;
-  -webkit-border-radius: 100%;
   border-radius: 100%;
 }
 aside.drawer ul#menuitems li.tagmenuitem .calendar-name {
@@ -8851,7 +8836,6 @@ aside.drawer ul#menuitems li.tagmenuitem .calendar-name {
 aside.drawer ul#menuitems li.tagmenuitem input.calendar-name {
   width: 100px;
   margin-bottom: 0;
-  -webkit-border-radius: 0;
   border-radius: 0;
   padding: 2px 5px;
   -webkit-box-shadow: none;
@@ -8961,7 +8945,6 @@ aside.drawer ul#menuitems li.tagmenuitem:hover .dropdown .dropdown-toggle .caret
   box-sizing: border-box;
   padding: 2em;
   border: none;
-  -webkit-border-radius: 0.52083em;
   border-radius: 0.52083em;
   -webkit-box-shadow: 0 1px 3px rgba(0,0,0,0.16), 0 3px 6px rgba(0,0,0,0.23);
   box-shadow: 0 1px 3px rgba(0,0,0,0.16), 0 3px 6px rgba(0,0,0,0.23);
@@ -9025,7 +9008,6 @@ aside.drawer ul#menuitems li.tagmenuitem:hover .dropdown .dropdown-toggle .caret
   width: 100%;
   padding-left: 3rem;
   border-color: #acb8c5;
-  -webkit-border-radius: 3px;
   border-radius: 3px;
   font-size: 1rem;
   margin-bottom: 0.5rem;
@@ -9072,11 +9054,9 @@ aside.drawer ul#menuitems li.tagmenuitem:hover .dropdown .dropdown-toggle .caret
   border: none;
 }
 .fc-view-container thead tr th:first-child {
-  -webkit-border-radius: 10px 0 0 0;
   border-radius: 10px 0 0 0;
 }
 .fc-view-container thead tr th:last-child {
-  -webkit-border-radius: 0 10px 0 0;
   border-radius: 0 10px 0 0;
 }
 .fc-view-container tbody .fc-state-highlight {
@@ -9213,7 +9193,6 @@ aside.drawer ul#menuitems li.tagmenuitem:hover .dropdown .dropdown-toggle .caret
 .fc-title .fc-widget-header,
 .fc-view-container .fc-widget-header {
   font-family: 'Source Sans Pro', sans-serif;
-  -webkit-border-radius: 0;
   border-radius: 0;
   color: #555;
   cursor: default;
@@ -9225,7 +9204,6 @@ aside.drawer ul#menuitems li.tagmenuitem:hover .dropdown .dropdown-toggle .caret
 }
 .fc-agenda-axis.fc-first {
   background: #fff;
-  -webkit-border-radius: 0;
   border-radius: 0;
   color: #fff;
 }
@@ -9237,7 +9215,6 @@ aside.drawer ul#menuitems li.tagmenuitem:hover .dropdown .dropdown-toggle .caret
 }
 .fc-content {
   border: 0;
-  -webkit-border-radius: 0;
   border-radius: 0;
   color: #fff;
   font-family: 'Source Sans Pro', sans-serif;
@@ -9278,7 +9255,6 @@ aside.drawer ul#menuitems li.tagmenuitem:hover .dropdown .dropdown-toggle .caret
   padding: 0.375em 0.5em;
 }
 .fc-event {
-  -webkit-border-radius: 2px;
   border-radius: 2px;
   -webkit-transition: all 0.2s ease-out;
   -moz-transition: all 0.2s ease-out;
@@ -9322,7 +9298,6 @@ a.btn:visited {
   border: 1px solid #c8d5df;
   -webkit-box-shadow: 0;
   box-shadow: 0;
-  -webkit-border-radius: 0px;
   border-radius: 0px;
   shadow: none;
 }
@@ -9332,7 +9307,6 @@ a.btn:visited {
 #add-alarm input:hover,
 #add-alarm select:hover {
   border: 1px solid #008af5;
-  -webkit-border-radius: 0px;
   border-radius: 0px;
   shadow: inset 1px 1px 2px rgba(100,100,100,0.1);
   color: #32363f;
@@ -9346,7 +9320,6 @@ a.btn:visited {
   box-shadow: none;
 }
 #add-alarm .add-on {
-  -webkit-border-radius: 0;
   border-radius: 0;
 }
 #add-alarm .datepicker td.day:hover {
@@ -9415,7 +9388,6 @@ a.btn:visited {
 .dayprogram .alarms .fc-time {
   margin-right: 0.5em;
   padding: 0.3em 0.5em;
-  -webkit-border-radius: 3px;
   border-radius: 3px;
   color: #fff;
   font-size: 0.85em;
@@ -9445,13 +9417,11 @@ a.btn:visited {
   padding: 1.5em;
   border: 1px solid #c8d5df;
   border-top: 0;
-  -webkit-border-radius: 0 0 8px 8px;
   border-radius: 0 0 8px 8px;
 }
 @media (max-width: 480px) {
   .public-event-container {
     border: 0;
-    -webkit-border-radius: 0;
     border-radius: 0;
   }
 }
@@ -9473,7 +9443,6 @@ a.btn:visited {
   padding: 1em 1.5em;
   background-color: #fff;
   border: 1px solid #c8d5df;
-  -webkit-border-radius: 8px 8px 0 0;
   border-radius: 8px 8px 0 0;
   text-align: center;
 }
@@ -9481,7 +9450,6 @@ a.btn:visited {
   .public-event-body header {
     margin: 0;
     border: 0;
-    -webkit-border-radius: 0;
     border-radius: 0;
   }
 }
@@ -9499,7 +9467,6 @@ a.btn:visited {
   box-shadow: 0 0 0.5em rgba(0,0,0,0.2);
   padding: 1.5em;
   font-size: small;
-  -webkit-border-radius: 1em;
   border-radius: 1em;
 }
 .event-sharings-button-item {
@@ -9600,7 +9567,6 @@ a.btn:visited {
   padding: 0;
   background-color: transparent;
   border: medium none;
-  -webkit-border-radius: 0;
   border-radius: 0;
 }
 .popover .label .icon {
@@ -9679,7 +9645,6 @@ a.btn:visited {
   box-sizing: border-box;
   margin: 0px;
   border: 1px solid #fff;
-  -webkit-border-radius: 0;
   border-radius: 0;
   -webkit-box-shadow: none !important;
   box-shadow: none !important;
@@ -9971,7 +9936,6 @@ a.btn:visited {
   flex-direction: row-reverse;
   padding: 0.6em 0.8em;
   background-color: #eceff3;
-  -webkit-border-radius: 0 0 5px 5px;
   border-radius: 0 0 5px 5px;
 }
 .popover-footer [role=button]:hover {
@@ -10031,7 +9995,6 @@ a.btn:visited {
   align-items: center;
   padding: 0.8em 1.5em;
   background-color: #eceff3;
-  -webkit-border-radius: 5px 5px 0 0;
   border-radius: 5px 5px 0 0;
 }
 .popover-back > * {
@@ -10086,7 +10049,6 @@ a.btn:visited {
 .popover-back .btn-done {
   padding: 0.4em;
   background-color: #acb8c5;
-  -webkit-border-radius: 3px;
   border-radius: 3px;
   line-height: 1;
   text-align: center;
@@ -10546,7 +10508,6 @@ main {
   padding: 0;
   width: 1.2rem;
   height: 1.2rem;
-  -webkit-border-radius: 100%;
   border-radius: 100%;
 }
 #alarm-list .dayprogram:first-child {
@@ -10796,7 +10757,6 @@ body.error-404 .error-frame .headline {
   border-left: 0;
   border-bottom: 0;
   border-right: 1px solid #c8d5df;
-  -webkit-border-radius: 0;
   border-radius: 0;
   outline: none;
   color: #92a0b2;

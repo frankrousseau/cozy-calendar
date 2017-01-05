@@ -36,7 +36,9 @@
   };
 
   var initModule = function(name, definition) {
-    var module = {id: name, exports: {}};
+    var hot = null;
+    hot = hmr && hmr.createHot(name);
+    var module = {id: name, exports: {}, hot: hot};
     cache[name] = module;
     definition(module.exports, localRequire(name), module);
     return module.exports;
@@ -44,6 +46,10 @@
 
   var expandAlias = function(name) {
     return aliases[name] ? expandAlias(aliases[name]) : name;
+  };
+
+  var _resolve = function(name, dep) {
+    return expandAlias(expand(dirname(name), dep));
   };
 
   var require = function(name, loaderPath) {
@@ -58,12 +64,6 @@
 
   require.alias = function(from, to) {
     aliases[to] = from;
-  };
-
-  require.reset = function() {
-    modules = {};
-    cache = {};
-    aliases = {};
   };
 
   var extRe = /\.[^.\/]+$/;
@@ -99,19 +99,55 @@
   };
 
   require.list = function() {
-    var result = [];
+    var list = [];
     for (var item in modules) {
       if (has.call(modules, item)) {
-        result.push(item);
+        list.push(item);
       }
     }
-    return result;
+    return list;
   };
 
-  require.brunch = true;
+  var hmr = globals._hmr && new globals._hmr(_resolve, require, modules, cache);
   require._cache = cache;
+  require.hmr = hmr && hmr.wrap;
+  require.brunch = true;
   globals.require = require;
 })();
+
+(function() {
+var global = window;
+var __makeRelativeRequire = function(require, mappings, pref) {
+  var none = {};
+  var tryReq = function(name, pref) {
+    var val;
+    try {
+      val = require(pref + '/node_modules/' + name);
+      return val;
+    } catch (e) {
+      if (e.toString().indexOf('Cannot find module') === -1) {
+        throw e;
+      }
+
+      if (pref.indexOf('node_modules') !== -1) {
+        var s = pref.split('/');
+        var i = s.lastIndexOf('node_modules');
+        var newPref = s.slice(0, i).join('/');
+        return tryReq(name, newPref);
+      }
+    }
+    return none;
+  };
+  return function(name) {
+    if (name in mappings) name = mappings[name];
+    if (!name) return;
+    if (name[0] !== '.' && pref) {
+      var val = tryReq(name, pref);
+      if (val !== none) return val;
+    }
+    return require(name);
+  }
+};
 require.register("application.coffee", function(exports, require, module) {
 module.exports = {
   listenTo: Backbone.Model.prototype.listenTo,
@@ -149,7 +185,7 @@ module.exports = {
     return window.onerror = applicationErrorHandler;
   },
   initialize: function(window) {
-    var CalendarsCollection, ContactCollection, EventCollection, Header, Menu, Router, SharingCollection, SocketListener, TagCollection, e, error1, i, isMobile, j, locales, m1, m2, now, todayChecker;
+    var CalendarsCollection, ContactCollection, EventCollection, Header, Menu, Router, Settings, SharingCollection, SocketListener, TagCollection, e, i, isMobile, j, locales, m1, m2, now, todayChecker;
     window.app = this;
     this.timezone = window.timezone;
     delete window.timezone;
@@ -175,10 +211,12 @@ module.exports = {
     ContactCollection = require('collections/contacts');
     CalendarsCollection = require('collections/calendars');
     SharingCollection = require('collections/sharings');
+    Settings = require('models/settings');
     this.tags = new TagCollection();
     this.events = new EventCollection();
     this.contacts = new ContactCollection();
     this.calendars = new CalendarsCollection();
+    this.settings = new Settings();
     this.pendingEventSharings = new SharingCollection();
     this.mainStore = {
       loadedMonths: {}
@@ -221,6 +259,9 @@ module.exports = {
     if (window.initPendingEventSharings) {
       this.pendingEventSharings.reset(window.initPendingEventSharings);
       delete window.initPendingEventSharings;
+    }
+    if (window.settings) {
+      this.settings.set(window.settings);
     }
     Backbone.history.start();
     todayChecker = require('lib/today_checker');
@@ -839,7 +880,7 @@ module.exports = ScheduleItemsCollection = (function(superClass) {
         eventsInRange = [];
         if ((ref = _this.visibleItems(calendars)) != null) {
           ref.each(function(item) {
-            var duration, e, error, itemEnd, itemStart;
+            var duration, e, itemEnd, itemStart;
             itemStart = item.getStartDateObject();
             itemEnd = item.getEndDateObject();
             duration = itemEnd - itemStart;
@@ -1131,7 +1172,7 @@ window.onerror = function(msg, url, line, col, error) {
 };
 
 $(function() {
-  var data, e, error1, exception, xhr;
+  var data, e, exception, xhr;
   try {
     moment.locale(window.locale);
     ColorHash.addScheme('cozy', colorSet);
@@ -3006,6 +3047,8 @@ module.exports = {
   "invite": "Invite",
   "close": "Close",
   "delete": "Delete",
+  "default calendar": "Default calendar",
+  "default calendar error": "An error occured while saving default calendar.",
   "change color": "Change color",
   "rename": "Rename",
   "export": "Export",
@@ -6828,7 +6871,7 @@ module.exports = Event = (function(superClass) {
 
   Event.prototype.defaults = function() {
     var defaultCalendar, ref, ref1;
-    defaultCalendar = ((ref = window.app.calendars) != null ? (ref1 = ref.at(0)) != null ? ref1.get('name') : void 0 : void 0) || t('default calendar name');
+    defaultCalendar = app.settings.get('defaultCalendar') || ((ref = app.calendars) != null ? (ref1 = ref.at(0)) != null ? ref1.get('name') : void 0 : void 0) || t('default calendar name');
     return {
       details: '',
       description: '',
@@ -7546,6 +7589,30 @@ module.exports = ScheduleItem = (function(superClass) {
 })(Backbone.Model);
 });
 
+;require.register("models/settings.coffee", function(exports, require, module) {
+var Settings,
+  extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
+  hasProp = {}.hasOwnProperty;
+
+module.exports = Settings = (function(superClass) {
+  extend(Settings, superClass);
+
+  function Settings() {
+    return Settings.__super__.constructor.apply(this, arguments);
+  }
+
+  Settings.prototype.urlRoot = 'settings';
+
+  Settings.prototype.sync = function(method, model, options) {
+    options.url = '/settings';
+    return Backbone.sync(method, model, options);
+  };
+
+  return Settings;
+
+})(Backbone.Model);
+});
+
 ;require.register("models/sharing.coffee", function(exports, require, module) {
 var Sharing, request,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
@@ -8165,7 +8232,8 @@ module.exports = CalendarView = (function(superClass) {
           start: helpers.momentToString(options.start),
           end: helpers.momentToString(options.end),
           description: '',
-          place: ''
+          place: '',
+          calendar: window.settings["default"]
         });
         return model.fetchEditability(function(err, editable) {
           if (err) {
@@ -8435,7 +8503,7 @@ module.exports = EventPopOver = (function(superClass) {
   };
 
   EventPopOver.prototype.afterRender = function() {
-    var error, error1;
+    var error;
     EventPopOver.__super__.afterRender.call(this);
     try {
       this.clickOutListener.exceptOn(this.target.closest('.fc-row').get(0));
@@ -8677,7 +8745,7 @@ module.exports = ImportView = (function(superClass) {
       })(this),
       error: (function(_this) {
         return function(xhr) {
-          var e, error, msg;
+          var e, msg;
           try {
             msg = JSON.parse(xhr.responseText).msg;
           } catch (error) {
@@ -10828,7 +10896,7 @@ module.exports = MainPopoverScreen = (function(superClass) {
   };
 
   MainPopoverScreen.prototype.getRecurrenceButtonText = function() {
-    var e, error1, language, locale, rrule;
+    var e, language, locale, rrule;
     rrule = this.formModel.get('rrule');
     if ((rrule != null ? rrule.length : void 0) > 0) {
       try {
@@ -10926,7 +10994,7 @@ module.exports = RepeatPopoverScreen = (function(superClass) {
   };
 
   RepeatPopoverScreen.prototype.getRenderData = function() {
-    var data, e, endMode, error, functions, monthlyRepeatBy, ref, ref1, rrule, rruleOptions;
+    var data, e, endMode, functions, monthlyRepeatBy, ref, ref1, rrule, rruleOptions;
     data = _.extend(RepeatPopoverScreen.__super__.getRenderData.call(this), {
       NO_REPEAT: NO_REPEAT,
       weekDays: moment.localeData()._weekdays,
@@ -11049,7 +11117,7 @@ module.exports = RepeatPopoverScreen = (function(superClass) {
       };
       summary = rrule.toText(window.t, language);
       return this.$('#summary').html(summary);
-    } catch (undefined) {}
+    } catch (error) {}
   };
 
   RepeatPopoverScreen.prototype.onLeaveScreen = function() {
@@ -11158,13 +11226,15 @@ module.exports = RepeatPopoverScreen = (function(superClass) {
 });
 
 ;require.register("views/settings_modal.coffee", function(exports, require, module) {
-var BaseView, ComboBox, ImportView, SettingsModals,
+var BaseView, ComboBox, ImportView, SettingsModals, request,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty,
   indexOf = [].indexOf || function(item) { for (var i = 0, l = this.length; i < l; i++) { if (i in this && this[i] === item) return i; } return -1; };
 
 BaseView = require('lib/base_view');
+
+request = require('lib/request');
 
 ImportView = require('./import_view');
 
@@ -11215,6 +11285,12 @@ module.exports = SettingsModals = (function(superClass) {
       el: this.$('#export-calendar'),
       source: app.calendars.toAutoCompleteSource()
     });
+    this.defaultCalendar = new ComboBox({
+      el: this.$('#default-calendar'),
+      source: app.calendars.toAutoCompleteSource()
+    });
+    this.defaultCalendar.setValue(window.app.settings.get('defaultCalendar'));
+    this.defaultCalendar.on('change', this.defaultCalendarChange);
     this.$('#importviewplaceholder').append(new ImportView().render().$el);
     this.$el.modal('show');
     $(document).on('keydown', this.hideOnEscape);
@@ -11251,6 +11327,15 @@ module.exports = SettingsModals = (function(superClass) {
     } else {
       return alert(t('please select existing calendar'));
     }
+  };
+
+  SettingsModals.prototype.defaultCalendarChange = function(value) {
+    app.settings.set('defaultCalendar', value);
+    return app.settings.save({
+      error: function() {
+        return alert(t('default calendar change error'));
+      }
+    });
   };
 
   SettingsModals.prototype.getPlaceholder = function(password) {
@@ -12082,7 +12167,7 @@ else
 {
 buf.push("<p>" + (jade.escape(null == (jade_interp = t('sync headline with data')) ? "" : jade_interp)) + "</p><ul><li>" + (jade.escape((jade_interp = t('sync url')) == null ? '' : jade_interp)) + " https://" + (jade.escape((jade_interp = account.domain) == null ? '' : jade_interp)) + "/public/sync/principals/me</li><li>" + (jade.escape((jade_interp = t('sync login')) == null ? '' : jade_interp)) + " " + (jade.escape((jade_interp = account.login) == null ? '' : jade_interp)) + "</li><li>" + (jade.escape((jade_interp = t('sync password') + " ") == null ? '' : jade_interp)) + "<span id=\"placeholder\">" + (jade.escape(null == (jade_interp = account.placeholder) ? "" : jade_interp)) + "</span><button id=\"show-password\" class=\"btn\">" + (jade.escape(null == (jade_interp = t('show')) ? "" : jade_interp)) + "</button><button id=\"hide-password\" class=\"btn\">" + (jade.escape(null == (jade_interp = t('hide')) ? "" : jade_interp)) + "</button></li></ul>");
 }
-buf.push("<p>" + (jade.escape(null == (jade_interp = t('sync help') + " ") ? "" : jade_interp)) + "<a href=\"https://docs.cozy.io/mobile/calendar.html\" target=\"_blank\">" + (jade.escape(null == (jade_interp = t('sync help link')) ? "" : jade_interp)) + "</a></p></section><section><h3>" + (jade.escape(null == (jade_interp = t('icalendar export')) ? "" : jade_interp)) + "</h3><p>" + (jade.escape(null == (jade_interp = t('download a copy of your calendar')) ? "" : jade_interp)) + "</p><p class=\"line\"><span class=\"surrounded-combobox\"><input id=\"export-calendar\"" + (jade.attr("value", calendar, true, false)) + "/></span><a id=\"export\" class=\"btn\">" + (jade.escape(null == (jade_interp = t('export your calendar')) ? "" : jade_interp)) + "</a></p></section><section><h3>" + (jade.escape(null == (jade_interp = t('icalendar import')) ? "" : jade_interp)) + "</h3><div id=\"importviewplaceholder\"></div></section>");}.call(this,"account" in locals_for_with?locals_for_with.account:typeof account!=="undefined"?account:undefined,"calendar" in locals_for_with?locals_for_with.calendar:typeof calendar!=="undefined"?calendar:undefined));;return buf.join("");
+buf.push("<p>" + (jade.escape(null == (jade_interp = t('sync help') + " ") ? "" : jade_interp)) + "<a href=\"https://docs.cozy.io/mobile/calendar.html\" target=\"_blank\">" + (jade.escape(null == (jade_interp = t('sync help link')) ? "" : jade_interp)) + "</a></p></section><section><h3>" + (jade.escape(null == (jade_interp = t('icalendar export')) ? "" : jade_interp)) + "</h3><p>" + (jade.escape(null == (jade_interp = t('download a copy of your calendar')) ? "" : jade_interp)) + "</p><p class=\"line\"><span class=\"surrounded-combobox\"><input id=\"export-calendar\"" + (jade.attr("value", calendar, true, false)) + "/></span><a id=\"export\" class=\"btn\">" + (jade.escape(null == (jade_interp = t('export your calendar')) ? "" : jade_interp)) + "</a></p></section><section><h3>" + (jade.escape(null == (jade_interp = t('default calendar')) ? "" : jade_interp)) + "</h3><p class=\"line\"><span class=\"surrounded-combobox\"><input id=\"default-calendar\"" + (jade.attr("value", calendar, true, false)) + "/></span></p></section><section><h3>" + (jade.escape(null == (jade_interp = t('icalendar import')) ? "" : jade_interp)) + "</h3><div id=\"importviewplaceholder\"></div></section>");}.call(this,"account" in locals_for_with?locals_for_with.account:typeof account!=="undefined"?account:undefined,"calendar" in locals_for_with?locals_for_with.calendar:typeof calendar!=="undefined"?calendar:undefined));;return buf.join("");
 };
 if (typeof define === 'function' && define.amd) {
   define([], function() {
@@ -12222,6 +12307,7 @@ module.exports = ComboBox = (function(superClass) {
       this.$el.after(caret);
     }
     value = options.current || this.getDefaultValue();
+    this.setValue(value);
     return this.onEditionComplete(value);
   };
 
@@ -12249,7 +12335,7 @@ module.exports = ComboBox = (function(superClass) {
 
   ComboBox.prototype.getDefaultValue = function() {
     var ref;
-    return ((ref = this.source[0]) != null ? ref.label : void 0) || t('default calendar name');
+    return this.value() || ((ref = this.source[0]) != null ? ref.label : void 0) || t('default calendar name');
   };
 
   ComboBox.prototype.value = function() {
@@ -12362,5 +12448,9 @@ module.exports = ComboBox = (function(superClass) {
 })(BaseView);
 });
 
-;
+;require.register("___globals___", function(exports, require, module) {
+  
+});})();require('___globals___');
+
+
 //# sourceMappingURL=app.js.map
