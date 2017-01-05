@@ -199,6 +199,7 @@ module.exports = class CalendarView extends BaseView
                 end: helpers.momentToString options.end
                 description: ''
                 place: ''
+                calendar: window.settings.default
 
             model.fetchEditability (err, editable) =>
                 if err
