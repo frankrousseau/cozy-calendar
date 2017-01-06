@@ -9000,6 +9000,12 @@ aside.drawer ul#menuitems li.tagmenuitem:hover .dropdown .dropdown-toggle .caret
   -moz-box-sizing: border-box;
   box-sizing: border-box;
 }
+.modal .btn#show-password,
+.modal .btn#hide-password {
+  width: auto;
+  padding: 0.4rem;
+  font-size: 0.9rem;
+}
 .modal .surrounded-combobox .combobox {
   -webkit-box-sizing: border-box;
   -moz-box-sizing: border-box;

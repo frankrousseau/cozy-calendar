@@ -3050,7 +3050,7 @@ module.exports = {
   "default calendar": "Default calendar",
   "default calendar change error": "An error occured while saving default calendar.",
   "default calendar change loading": "Savnig default calendar change.",
-  "default calendar change success": "Default calendar successfully changed.",
+  "default calendar change success": "Default calendar successfully changed!",
   "change color": "Change color",
   "rename": "Rename",
   "export": "Export",
@@ -11231,8 +11231,7 @@ module.exports = RepeatPopoverScreen = (function(superClass) {
 var BaseView, ComboBox, ImportView, SettingsModals, request,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
-  hasProp = {}.hasOwnProperty,
-  indexOf = [].indexOf || function(item) { for (var i = 0, l = this.length; i < l; i++) { if (i in this && this[i] === item) return i; } return -1; };
+  hasProp = {}.hasOwnProperty;
 
 BaseView = require('lib/base_view');
 
@@ -11263,7 +11262,6 @@ module.exports = SettingsModals = (function(superClass) {
 
   SettingsModals.prototype.events = {
     'keyup': 'hideOnEscape',
-    'click a#export': 'exportCalendar',
     'click #show-password': 'showPassword',
     'click #hide-password': 'hidePassword',
     'click .modal-close': 'close'
@@ -11284,10 +11282,6 @@ module.exports = SettingsModals = (function(superClass) {
 
   SettingsModals.prototype.afterRender = function() {
     this.$el.attr('tabindex', '0');
-    this.calendar = new ComboBox({
-      el: this.$('#export-calendar'),
-      source: app.calendars.toAutoCompleteSource()
-    });
     this.defaultCalendar = new ComboBox({
       el: this.$('#default-calendar'),
       source: app.calendars.toAutoCompleteSource(),
@@ -11322,17 +11316,6 @@ module.exports = SettingsModals = (function(superClass) {
     return this.$el.modal('hide');
   };
 
-  SettingsModals.prototype.exportCalendar = function() {
-    var calendarId, encodedName;
-    calendarId = this.calendar.value();
-    if (indexOf.call(app.calendars.toArray(), calendarId) >= 0) {
-      encodedName = encodeURIComponent(calendarId);
-      return window.location = "export/" + encodedName + ".ics";
-    } else {
-      return alert(t('please select existing calendar'));
-    }
-  };
-
   SettingsModals.prototype.defaultCalendarChange = function(value) {
     this.defaultCalLoadingIndicator = this.$('#default-calendar-loading');
     this.defaultCalLoadingIndicator.html(t('default calendar change loading'));
@@ -11354,7 +11337,7 @@ module.exports = SettingsModals = (function(superClass) {
         return function() {
           return setTimeout(function() {
             return _this.defaultCalLoadingIndicator.html('');
-          }, 2000);
+          }, 4000);
         };
       })(this)
     });
@@ -12189,7 +12172,7 @@ else
 {
 buf.push("<p>" + (jade.escape(null == (jade_interp = t('sync headline with data')) ? "" : jade_interp)) + "</p><ul><li>" + (jade.escape((jade_interp = t('sync url')) == null ? '' : jade_interp)) + " https://" + (jade.escape((jade_interp = account.domain) == null ? '' : jade_interp)) + "/public/sync/principals/me</li><li>" + (jade.escape((jade_interp = t('sync login')) == null ? '' : jade_interp)) + " " + (jade.escape((jade_interp = account.login) == null ? '' : jade_interp)) + "</li><li>" + (jade.escape((jade_interp = t('sync password') + " ") == null ? '' : jade_interp)) + "<span id=\"placeholder\">" + (jade.escape(null == (jade_interp = account.placeholder) ? "" : jade_interp)) + "</span><button id=\"show-password\" class=\"btn\">" + (jade.escape(null == (jade_interp = t('show')) ? "" : jade_interp)) + "</button><button id=\"hide-password\" class=\"btn\">" + (jade.escape(null == (jade_interp = t('hide')) ? "" : jade_interp)) + "</button></li></ul>");
 }
-buf.push("<p>" + (jade.escape(null == (jade_interp = t('sync help') + " ") ? "" : jade_interp)) + "<a href=\"https://docs.cozy.io/mobile/calendar.html\" target=\"_blank\">" + (jade.escape(null == (jade_interp = t('sync help link')) ? "" : jade_interp)) + "</a></p></section><section><h3>" + (jade.escape(null == (jade_interp = t('icalendar export')) ? "" : jade_interp)) + "</h3><p>" + (jade.escape(null == (jade_interp = t('download a copy of your calendar')) ? "" : jade_interp)) + "</p><p class=\"line\"><span class=\"surrounded-combobox\"><input id=\"export-calendar\"" + (jade.attr("value", calendar, true, false)) + "/></span><a id=\"export\" class=\"btn\">" + (jade.escape(null == (jade_interp = t('export your calendar')) ? "" : jade_interp)) + "</a></p></section><section><h3>" + (jade.escape(null == (jade_interp = t('default calendar')) ? "" : jade_interp)) + "</h3><p class=\"line\"><span class=\"surrounded-combobox\"><input id=\"default-calendar\"" + (jade.attr("value", calendar, true, false)) + "/></span></p><p id=\"default-calendar-loading\" class=\"line\"></p></section><section><h3>" + (jade.escape(null == (jade_interp = t('icalendar import')) ? "" : jade_interp)) + "</h3><div id=\"importviewplaceholder\"></div></section>");}.call(this,"account" in locals_for_with?locals_for_with.account:typeof account!=="undefined"?account:undefined,"calendar" in locals_for_with?locals_for_with.calendar:typeof calendar!=="undefined"?calendar:undefined));;return buf.join("");
+buf.push("<p>" + (jade.escape(null == (jade_interp = t('sync help') + " ") ? "" : jade_interp)) + "<a href=\"https://docs.cozy.io/mobile/calendar.html\" target=\"_blank\">" + (jade.escape(null == (jade_interp = t('sync help link')) ? "" : jade_interp)) + "</a></p></section><section><h3>" + (jade.escape(null == (jade_interp = t('default calendar')) ? "" : jade_interp)) + "</h3><p class=\"line\"><span class=\"surrounded-combobox\"><input id=\"default-calendar\"" + (jade.attr("value", calendar, true, false)) + "/></span></p><p id=\"default-calendar-loading\" class=\"line\"></p></section><section><h3>" + (jade.escape(null == (jade_interp = t('icalendar import')) ? "" : jade_interp)) + "</h3><div id=\"importviewplaceholder\"></div></section>");}.call(this,"account" in locals_for_with?locals_for_with.account:typeof account!=="undefined"?account:undefined,"calendar" in locals_for_with?locals_for_with.calendar:typeof calendar!=="undefined"?calendar:undefined));;return buf.join("");
 };
 if (typeof define === 'function' && define.amd) {
   define([], function() {
