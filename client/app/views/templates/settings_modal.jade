@@ -22,14 +22,6 @@ section
     p= t('sync help') + " "
         a(href='https://docs.cozy.io/mobile/calendar.html', target="_blank")= t('sync help link')
 
-section
-    h3= t('icalendar export')
-    p
-      = t('download a copy of your calendar')
-    p.line
-      span.surrounded-combobox
-        input#export-calendar(value=calendar)
-      a#export.btn= t('export your calendar')
 
 section
     h3= t('default calendar')
