@@ -11285,11 +11285,12 @@ module.exports = SettingsModals = (function(superClass) {
       el: this.$('#export-calendar'),
       source: app.calendars.toAutoCompleteSource()
     });
+    console.log(app.settings);
     this.defaultCalendar = new ComboBox({
       el: this.$('#default-calendar'),
-      source: app.calendars.toAutoCompleteSource()
+      source: app.calendars.toAutoCompleteSource(),
+      current: app.settings.get('defaultCalendar')
     });
-    this.defaultCalendar.setValue(window.app.settings.get('defaultCalendar'));
     this.defaultCalendar.on('change', this.defaultCalendarChange);
     this.$('#importviewplaceholder').append(new ImportView().render().$el);
     this.$el.modal('show');
