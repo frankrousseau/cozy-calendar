@@ -10,13 +10,13 @@ module.exports = class CalendarHeader extends BaseView
 
 
     initialize: (options) ->
+        @view = options?.view
         @cal = options?.cal
         @isMobile = options?.isMobile
 
 
     getViewName: ->
-        return 'list' unless @cal?
-        return 'month'
+        return @view
 
 
     getTitle: ->
@@ -68,4 +68,5 @@ module.exports = class CalendarHeader extends BaseView
         'click .fc-button-prev': => @trigger 'prev'
         'click .fc-button-today': => @trigger 'today'
         'click .fc-button-month': => @trigger 'month'
+        'click .fc-button-week': => @trigger 'week'
         'click .fc-button-list': => @trigger 'list'

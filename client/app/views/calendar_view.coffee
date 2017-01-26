@@ -44,6 +44,7 @@ module.exports = class CalendarView extends BaseView
 
         @cal = @$ '#alarms'
         @view = @options.view
+
         # set default date
         currDate = moment()
         currDate.year(@options.year)   if @options.year?
@@ -76,6 +77,7 @@ module.exports = class CalendarView extends BaseView
             timeFormat: '' # Setted in scheduleitem title.
             columnFormat:
                 'month': 'dddd'
+                'week': 'dddd'
 
             axisFormat: 'H:mm'
             allDaySlot: true
@@ -96,7 +98,9 @@ module.exports = class CalendarView extends BaseView
         source = @eventCollection.getFCEventSource @calendarsCollection
         @cal.fullCalendar 'addEventSource', source
 
-        @calHeader = new Header cal: @cal
+        @calHeader = new Header
+            cal: @cal
+            view: @view
 
         # Before displaying the calendar for the previous month, we make sure
         # that events are loaded.
@@ -120,6 +124,10 @@ module.exports = class CalendarView extends BaseView
         @calHeader.on 'month', =>
             @clearViewComponents =>
                 @cal.fullCalendar 'changeView', 'month'
+        @calHeader.on 'month', =>
+                app.router.navigate 'month', trigger:true
+        @calHeader.on 'week', =>
+                app.router.navigate 'week', trigger:true
         @calHeader.on 'list', =>
             @clearViewComponents ->
                 window.app.events.sort()
@@ -228,7 +236,10 @@ module.exports = class CalendarView extends BaseView
 
         @view = view.name
 
-        hash = view.intervalStart.format '[month]/YYYY/M'
+        if @view is 'month'
+            hash = view.intervalStart.format '[month]/YYYY/M'
+        else if @view is 'agendaWeek'
+            hash = view.intervalStart.format '[week]/YYYY/M/DD'
 
         app.router.navigate hash
 
@@ -310,9 +321,14 @@ module.exports = class CalendarView extends BaseView
 
     onEventDrop: (fcEvent, delta, revertFunc, jsEvent, ui, view) =>
         evt = @eventCollection.get fcEvent.id
+        console.log('eventDrop')
+        console.log(delta)
+        console.log(evt)
         evt.addToStart(delta)
         evt.addToEnd(delta)
+        console.log(evt)
 
+        ###
         evt.save {},
             wait: true
             success: ->
@@ -320,6 +336,7 @@ module.exports = class CalendarView extends BaseView
             error: ->
                 fcEvent.isSaving = false
                 revertFunc()
+        ###
 
 
     onEventResizeStop: (fcEvent, jsEvent, ui, view) ->
