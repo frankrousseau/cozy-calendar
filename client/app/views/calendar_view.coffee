@@ -173,6 +173,7 @@ module.exports = class CalendarView extends BaseView
 
         return null unless model?
 
+        ###
         previousRRule = model.previous('rrule')
         modelWasRecurrent = previousRRule? and previousRRule isnt ''
         return @refresh() if model.isRecurrent() or modelWasRecurrent
@@ -180,8 +181,10 @@ module.exports = class CalendarView extends BaseView
         # fullCalendar('updateEvent') eats end of allDay events!(?),
         # perform a full refresh as a workaround.
         return @refresh() if model.isAllDay()
+        ###
 
         data = model.toPunctualFullCalendarEvent()
+        console.log 'refreshOne', data
         [fcEvent] = @cal.fullCalendar 'clientEvents', data.id
         # if updated event is not shown on screen, fcEvent doesn't exist
         if fcEvent?
@@ -190,7 +193,10 @@ module.exports = class CalendarView extends BaseView
 
         # Refresh to deal with calendar update.
         # If the new calendar is not visible the event should not be shown
-        @refresh()
+        #@refresh()
+        #
+
+        # @cal.fullCalendar 'unselect'
 
 
     showPopover: (options) ->
@@ -321,14 +327,8 @@ module.exports = class CalendarView extends BaseView
 
     onEventDrop: (fcEvent, delta, revertFunc, jsEvent, ui, view) =>
         evt = @eventCollection.get fcEvent.id
-        console.log('eventDrop')
-        console.log(delta)
-        console.log(evt)
-        evt.addToStart(delta)
-        evt.addToEnd(delta)
-        console.log(evt)
+        evt.move(delta)
 
-        ###
         evt.save {},
             wait: true
             success: ->
@@ -336,7 +336,6 @@ module.exports = class CalendarView extends BaseView
             error: ->
                 fcEvent.isSaving = false
                 revertFunc()
-        ###
 
 
     onEventResizeStop: (fcEvent, jsEvent, ui, view) ->

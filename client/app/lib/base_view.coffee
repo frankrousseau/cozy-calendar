@@ -74,10 +74,10 @@ module.exports = class BaseView extends Backbone.View
         # Specify exceptions that should not be considered as a "click outside"
         exceptOn: (elements) ->
             addClickListener = (element) ->
-                if not _.isElement element
-                    throw new Error 'Cannot add click listener on non element'
-                element.addEventListener 'click', insideElementClickHandler
-                listenedElements.push element
+                if _.isElement element
+                    # throw new Error 'Cannot add click listener on non element'
+                    element.addEventListener 'click', insideElementClickHandler
+                    listenedElements.push element
 
             if _.isArray elements
                 elements.forEach addClickListener

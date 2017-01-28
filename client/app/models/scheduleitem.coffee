@@ -96,6 +96,15 @@ module.exports = class ScheduleItem extends Backbone.Model
 
         return formattedDate
 
+    move: (duration) ->
+        date = @getStartDateObject().add duration
+        start = @_formatMoment date
+        date = @getEndDateObject().add duration
+        end = @_formatMoment date
+        changes = {}
+        changes[@startDateField] = start
+        changes[@endDateField] = end
+        @set changes
 
     addToStart: (duration) ->
         date = @getStartDateObject().add duration
