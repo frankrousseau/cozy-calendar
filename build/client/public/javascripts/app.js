@@ -9,32 +9,10 @@
   var aliases = {};
   var has = ({}).hasOwnProperty;
 
-  var endsWith = function(str, suffix) {
-    return str.indexOf(suffix, str.length - suffix.length) !== -1;
-  };
-
-  var _cmp = 'components/';
-  var unalias = function(alias, loaderPath) {
-    var start = 0;
-    if (loaderPath) {
-      if (loaderPath.indexOf(_cmp) === 0) {
-        start = _cmp.length;
-      }
-      if (loaderPath.indexOf('/', start) > 0) {
-        loaderPath = loaderPath.substring(start, loaderPath.indexOf('/', start));
-      }
-    }
-    var result = aliases[alias + '/index.js'] || aliases[loaderPath + '/deps/' + alias + '/index.js'];
-    if (result) {
-      return _cmp + result.substring(0, result.length - '.js'.length);
-    }
-    return alias;
-  };
-
-  var _reg = /^\.\.?(\/|$)/;
+  var expRe = /^\.\.?(\/|$)/;
   var expand = function(root, name) {
     var results = [], part;
-    var parts = (_reg.test(name) ? root + '/' + name : name).split('/');
+    var parts = (expRe.test(name) ? root + '/' + name : name).split('/');
     for (var i = 0, length = parts.length; i < length; i++) {
       part = parts[i];
       if (part === '..') {
@@ -58,58 +36,119 @@
   };
 
   var initModule = function(name, definition) {
-    var module = {id: name, exports: {}};
+    var hot = null;
+    hot = hmr && hmr.createHot(name);
+    var module = {id: name, exports: {}, hot: hot};
     cache[name] = module;
     definition(module.exports, localRequire(name), module);
     return module.exports;
   };
 
+  var expandAlias = function(name) {
+    return aliases[name] ? expandAlias(aliases[name]) : name;
+  };
+
+  var _resolve = function(name, dep) {
+    return expandAlias(expand(dirname(name), dep));
+  };
+
   var require = function(name, loaderPath) {
-    var path = expand(name, '.');
     if (loaderPath == null) loaderPath = '/';
-    path = unalias(name, loaderPath);
+    var path = expandAlias(name);
 
     if (has.call(cache, path)) return cache[path].exports;
     if (has.call(modules, path)) return initModule(path, modules[path]);
 
-    var dirIndex = expand(path, './index');
-    if (has.call(cache, dirIndex)) return cache[dirIndex].exports;
-    if (has.call(modules, dirIndex)) return initModule(dirIndex, modules[dirIndex]);
-
-    throw new Error('Cannot find module "' + name + '" from '+ '"' + loaderPath + '"');
+    throw new Error("Cannot find module '" + name + "' from '" + loaderPath + "'");
   };
 
   require.alias = function(from, to) {
     aliases[to] = from;
   };
 
+  var extRe = /\.[^.\/]+$/;
+  var indexRe = /\/index(\.[^\/]+)?$/;
+  var addExtensions = function(bundle) {
+    if (extRe.test(bundle)) {
+      var alias = bundle.replace(extRe, '');
+      if (!has.call(aliases, alias) || aliases[alias].replace(extRe, '') === alias + '/index') {
+        aliases[alias] = bundle;
+      }
+    }
+
+    if (indexRe.test(bundle)) {
+      var iAlias = bundle.replace(indexRe, '');
+      if (!has.call(aliases, iAlias)) {
+        aliases[iAlias] = bundle;
+      }
+    }
+  };
+
   require.register = require.define = function(bundle, fn) {
     if (typeof bundle === 'object') {
       for (var key in bundle) {
         if (has.call(bundle, key)) {
-          modules[key] = bundle[key];
+          require.register(key, bundle[key]);
         }
       }
     } else {
       modules[bundle] = fn;
+      delete cache[bundle];
+      addExtensions(bundle);
     }
   };
 
   require.list = function() {
-    var result = [];
+    var list = [];
     for (var item in modules) {
       if (has.call(modules, item)) {
-        result.push(item);
+        list.push(item);
       }
     }
-    return result;
+    return list;
   };
 
-  require.brunch = true;
+  var hmr = globals._hmr && new globals._hmr(_resolve, require, modules, cache);
   require._cache = cache;
+  require.hmr = hmr && hmr.wrap;
+  require.brunch = true;
   globals.require = require;
 })();
-require.register("application", function(exports, require, module) {
+
+(function() {
+var global = window;
+var __makeRelativeRequire = function(require, mappings, pref) {
+  var none = {};
+  var tryReq = function(name, pref) {
+    var val;
+    try {
+      val = require(pref + '/node_modules/' + name);
+      return val;
+    } catch (e) {
+      if (e.toString().indexOf('Cannot find module') === -1) {
+        throw e;
+      }
+
+      if (pref.indexOf('node_modules') !== -1) {
+        var s = pref.split('/');
+        var i = s.lastIndexOf('node_modules');
+        var newPref = s.slice(0, i).join('/');
+        return tryReq(name, newPref);
+      }
+    }
+    return none;
+  };
+  return function(name) {
+    if (name in mappings) name = mappings[name];
+    if (!name) return;
+    if (name[0] !== '.' && pref) {
+      var val = tryReq(name, pref);
+      if (val !== none) return val;
+    }
+    return require(name);
+  }
+};
+require.register("application.coffee", function(exports, require, module) {
 module.exports = {
   listenTo: Backbone.Model.prototype.listenTo,
   initializeErrorHandler: function(window, polyglot) {
@@ -146,7 +185,7 @@ module.exports = {
     return window.onerror = applicationErrorHandler;
   },
   initialize: function(window) {
-    var CalendarsCollection, ContactCollection, EventCollection, Header, Menu, Router, SharingCollection, SocketListener, TagCollection, e, error1, i, isMobile, j, locales, m1, m2, now, todayChecker;
+    var CalendarsCollection, ContactCollection, EventCollection, Header, Menu, Router, Settings, SharingCollection, SocketListener, TagCollection, e, i, isMobile, j, locales, m1, m2, now, todayChecker;
     window.app = this;
     this.timezone = window.timezone;
     delete window.timezone;
@@ -172,10 +211,12 @@ module.exports = {
     ContactCollection = require('collections/contacts');
     CalendarsCollection = require('collections/calendars');
     SharingCollection = require('collections/sharings');
+    Settings = require('models/settings');
     this.tags = new TagCollection();
     this.events = new EventCollection();
     this.contacts = new ContactCollection();
     this.calendars = new CalendarsCollection();
+    this.settings = new Settings();
     this.pendingEventSharings = new SharingCollection();
     this.mainStore = {
       loadedMonths: {}
@@ -219,6 +260,9 @@ module.exports = {
       this.pendingEventSharings.reset(window.initPendingEventSharings);
       delete window.initPendingEventSharings;
     }
+    if (window.settings) {
+      this.settings.set(window.settings);
+    }
     Backbone.history.start();
     todayChecker = require('lib/today_checker');
     todayChecker(this.router);
@@ -235,7 +279,7 @@ module.exports = {
 };
 });
 
-;require.register("collections/calendars", function(exports, require, module) {
+;require.register("collections/calendars.coffee", function(exports, require, module) {
 var Calendar, CalendarCollection, SocketListener, Tag, TagCollection, request, stringify,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty,
@@ -367,7 +411,7 @@ module.exports = CalendarCollection = (function(superClass) {
 })(TagCollection);
 });
 
-;require.register("collections/contacts", function(exports, require, module) {
+;require.register("collections/contacts.coffee", function(exports, require, module) {
 var Contact, ContactCollection,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -422,7 +466,7 @@ module.exports = ContactCollection = (function(superClass) {
 })(Backbone.Collection);
 });
 
-;require.register("collections/daybuckets", function(exports, require, module) {
+;require.register("collections/daybuckets.coffee", function(exports, require, module) {
 var DayBucket, DayBucketCollection, RealEventCollection, RealEventGeneratorCollection,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -526,7 +570,7 @@ module.exports = DayBucketCollection = (function(superClass) {
 })(Backbone.Collection);
 });
 
-;require.register("collections/events", function(exports, require, module) {
+;require.register("collections/events.coffee", function(exports, require, module) {
 var Event, EventCollection, ScheduleItemsCollection, request,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -575,7 +619,7 @@ module.exports = EventCollection = (function(superClass) {
 })(ScheduleItemsCollection);
 });
 
-;require.register("collections/realevents", function(exports, require, module) {
+;require.register("collections/realevents.coffee", function(exports, require, module) {
 var RealEvent, RealEventCollection,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -602,7 +646,7 @@ module.exports = RealEventCollection = (function(superClass) {
 })(Backbone.Collection);
 });
 
-;require.register("collections/realeventsgenerator", function(exports, require, module) {
+;require.register("collections/realeventsgenerator.coffee", function(exports, require, module) {
 var RealEvent, RealEventGeneratorCollection,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -798,7 +842,7 @@ module.exports = RealEventGeneratorCollection = (function(superClass) {
 })(Backbone.Collection);
 });
 
-;require.register("collections/scheduleitems", function(exports, require, module) {
+;require.register("collections/scheduleitems.coffee", function(exports, require, module) {
 var ScheduleItemsCollection,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
@@ -836,7 +880,7 @@ module.exports = ScheduleItemsCollection = (function(superClass) {
         eventsInRange = [];
         if ((ref = _this.visibleItems(calendars)) != null) {
           ref.each(function(item) {
-            var duration, e, error, itemEnd, itemStart;
+            var duration, e, itemEnd, itemStart;
             itemStart = item.getStartDateObject();
             itemEnd = item.getEndDateObject();
             duration = itemEnd - itemStart;
@@ -871,7 +915,7 @@ module.exports = ScheduleItemsCollection = (function(superClass) {
 })(Backbone.Collection);
 });
 
-;require.register("collections/sharings", function(exports, require, module) {
+;require.register("collections/sharings.coffee", function(exports, require, module) {
 var Sharing, SharingCollection,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -900,7 +944,7 @@ module.exports = SharingCollection = (function(superClass) {
 })(Backbone.Collection);
 });
 
-;require.register("collections/tags", function(exports, require, module) {
+;require.register("collections/tags.coffee", function(exports, require, module) {
 var Tag, TagCollection,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -959,7 +1003,14 @@ module.exports = TagCollection = (function(superClass) {
 })(Backbone.Collection);
 });
 
-;require.register("helpers", function(exports, require, module) {
+;require.register("format.coffee", function(exports, require, module) {
+module.exports = {
+  WEEK_URL_HASH_FORMAT: '[week]/YYYY/MM/DD',
+  MONTH_URL_HASH_FORMAT: '[month]/YYYY/MM'
+};
+});
+
+;require.register("helpers.coffee", function(exports, require, module) {
 exports.formatDateISO8601 = function(fullDate) {
   var date, time;
   fullDate = fullDate.split(/#/);
@@ -1097,15 +1148,15 @@ exports.getLists = function(list, length) {
 };
 });
 
-;require.register("helpers/color-set", function(exports, require, module) {
+;require.register("helpers/color-set.coffee", function(exports, require, module) {
 module.exports = ['304FFE', '2979FF', '00B0FF', '00DCE9', '00D5B8', '00C853', 'E70505', 'FF5700', 'FF7900', 'FFA300', 'B3C51D', '64DD17', 'FF2828', 'F819AA', 'AA00FF', '6200EA', '7190AB', '51658D'];
 });
 
-;require.register("helpers/timezone", function(exports, require, module) {
+;require.register("helpers/timezone.coffee", function(exports, require, module) {
 exports.timezones = ["Africa/Abidjan", "Africa/Accra", "Africa/Addis_Ababa", "Africa/Algiers", "Africa/Asmara", "Africa/Bamako", "Africa/Bangui", "Africa/Banjul", "Africa/Bissau", "Africa/Blantyre", "Africa/Brazzaville", "Africa/Bujumbura", "Africa/Cairo", "Africa/Casablanca", "Africa/Ceuta", "Africa/Conakry", "Africa/Dakar", "Africa/Dar_es_Salaam", "Africa/Djibouti", "Africa/Douala", "Africa/El_Aaiun", "Africa/Freetown", "Africa/Gaborone", "Africa/Harare", "Africa/Johannesburg", "Africa/Kampala", "Africa/Khartoum", "Africa/Kigali", "Africa/Kinshasa", "Africa/Lagos", "Africa/Libreville", "Africa/Lome", "Africa/Luanda", "Africa/Lubumbashi", "Africa/Lusaka", "Africa/Malabo", "Africa/Maputo", "Africa/Maseru", "Africa/Mbabane", "Africa/Mogadishu", "Africa/Monrovia", "Africa/Nairobi", "Africa/Ndjamena", "Africa/Niamey", "Africa/Nouakchott", "Africa/Ouagadougou", "Africa/Porto-Novo", "Africa/Sao_Tome", "Africa/Tripoli", "Africa/Tunis", "Africa/Windhoek", "America/Adak", "America/Anchorage", "America/Anguilla", "America/Antigua", "America/Araguaina", "America/Argentina/Buenos_Aires", "America/Argentina/Catamarca", "America/Argentina/Cordoba", "America/Argentina/Jujuy", "America/Argentina/La_Rioja", "America/Argentina/Mendoza", "America/Argentina/Rio_Gallegos", "America/Argentina/Salta", "America/Argentina/San_Juan", "America/Argentina/San_Luis", "America/Argentina/Tucuman", "America/Argentina/Ushuaia", "America/Aruba", "America/Asuncion", "America/Atikokan", "America/Bahia", "America/Barbados", "America/Belem", "America/Belize", "America/Blanc-Sablon", "America/Boa_Vista", "America/Bogota", "America/Boise", "America/Cambridge_Bay", "America/Campo_Grande", "America/Cancun", "America/Caracas", "America/Cayenne", "America/Cayman", "America/Chicago", "America/Chihuahua", "America/Costa_Rica", "America/Cuiaba", "America/Curacao", "America/Danmarkshavn", "America/Dawson", "America/Dawson_Creek", "America/Denver", "America/Detroit", "America/Dominica", "America/Edmonton", "America/Eirunepe", "America/El_Salvador", "America/Fortaleza", "America/Glace_Bay", "America/Godthab", "America/Goose_Bay", "America/Grand_Turk", "America/Grenada", "America/Guadeloupe", "America/Guatemala", "America/Guayaquil", "America/Guyana", "America/Halifax", "America/Havana", "America/Hermosillo", "America/Indiana/Indianapolis", "America/Indiana/Knox", "America/Indiana/Marengo", "America/Indiana/Petersburg", "America/Indiana/Tell_City", "America/Indiana/Vevay", "America/Indiana/Vincennes", "America/Indiana/Winamac", "America/Inuvik", "America/Iqaluit", "America/Jamaica", "America/Juneau", "America/Kentucky/Louisville", "America/Kentucky/Monticello", "America/La_Paz", "America/Lima", "America/Los_Angeles", "America/Maceio", "America/Managua", "America/Manaus", "America/Martinique", "America/Matamoros", "America/Mazatlan", "America/Menominee", "America/Merida", "America/Mexico_City", "America/Miquelon", "America/Moncton", "America/Monterrey", "America/Montevideo", "America/Montreal", "America/Montserrat", "America/Nassau", "America/New_York", "America/Nipigon", "America/Nome", "America/Noronha", "America/North_Dakota/Center", "America/North_Dakota/New_Salem", "America/Ojinaga", "America/Panama", "America/Pangnirtung", "America/Paramaribo", "America/Phoenix", "America/Port-au-Prince", "America/Port_of_Spain", "America/Porto_Velho", "America/Puerto_Rico", "America/Rainy_River", "America/Rankin_Inlet", "America/Recife", "America/Regina", "America/Resolute", "America/Rio_Branco", "America/Santa_Isabel", "America/Santarem", "America/Santiago", "America/Santo_Domingo", "America/Sao_Paulo", "America/Scoresbysund", "America/St_Johns", "America/St_Kitts", "America/St_Lucia", "America/St_Thomas", "America/St_Vincent", "America/Swift_Current", "America/Tegucigalpa", "America/Thule", "America/Thunder_Bay", "America/Tijuana", "America/Toronto", "America/Tortola", "America/Vancouver", "America/Whitehorse", "America/Winnipeg", "America/Yakutat", "America/Yellowknife", "Antarctica/Casey", "Antarctica/Davis", "Antarctica/DumontDUrville", "Antarctica/Mawson", "Antarctica/McMurdo", "Antarctica/Palmer", "Antarctica/Rothera", "Antarctica/Syowa", "Antarctica/Vostok", "Asia/Aden", "Asia/Almaty", "Asia/Amman", "Asia/Anadyr", "Asia/Aqtau", "Asia/Aqtobe", "Asia/Ashgabat", "Asia/Baghdad", "Asia/Bahrain", "Asia/Baku", "Asia/Bangkok", "Asia/Beirut", "Asia/Bishkek", "Asia/Brunei", "Asia/Choibalsan", "Asia/Chongqing", "Asia/Colombo", "Asia/Damascus", "Asia/Dhaka", "Asia/Dili", "Asia/Dubai", "Asia/Dushanbe", "Asia/Gaza", "Asia/Harbin", "Asia/Ho_Chi_Minh", "Asia/Hong_Kong", "Asia/Hovd", "Asia/Irkutsk", "Asia/Jakarta", "Asia/Jayapura", "Asia/Jerusalem", "Asia/Kabul", "Asia/Kamchatka", "Asia/Karachi", "Asia/Kashgar", "Asia/Kathmandu", "Asia/Kolkata", "Asia/Krasnoyarsk", "Asia/Kuala_Lumpur", "Asia/Kuching", "Asia/Kuwait", "Asia/Macau", "Asia/Magadan", "Asia/Makassar", "Asia/Manila", "Asia/Muscat", "Asia/Nicosia", "Asia/Novokuznetsk", "Asia/Novosibirsk", "Asia/Omsk", "Asia/Oral", "Asia/Phnom_Penh", "Asia/Pontianak", "Asia/Pyongyang", "Asia/Qatar", "Asia/Qyzylorda", "Asia/Rangoon", "Asia/Riyadh", "Asia/Sakhalin", "Asia/Samarkand", "Asia/Seoul", "Asia/Shanghai", "Asia/Singapore", "Asia/Taipei", "Asia/Tashkent", "Asia/Tbilisi", "Asia/Tehran", "Asia/Thimphu", "Asia/Tokyo", "Asia/Ulaanbaatar", "Asia/Urumqi", "Asia/Vientiane", "Asia/Vladivostok", "Asia/Yakutsk", "Asia/Yekaterinburg", "Asia/Yerevan", "Atlantic/Azores", "Atlantic/Bermuda", "Atlantic/Canary", "Atlantic/Cape_Verde", "Atlantic/Faroe", "Atlantic/Madeira", "Atlantic/Reykjavik", "Atlantic/South_Georgia", "Atlantic/St_Helena", "Atlantic/Stanley", "Australia/Adelaide", "Australia/Brisbane", "Australia/Broken_Hill", "Australia/Currie", "Australia/Darwin", "Australia/Eucla", "Australia/Hobart", "Australia/Lindeman", "Australia/Lord_Howe", "Australia/Melbourne", "Australia/Perth", "Australia/Sydney", "Canada/Atlantic", "Canada/Central", "Canada/Eastern", "Canada/Mountain", "Canada/Newfoundland", "Canada/Pacific", "Europe/Amsterdam", "Europe/Andorra", "Europe/Athens", "Europe/Belgrade", "Europe/Berlin", "Europe/Brussels", "Europe/Bucharest", "Europe/Budapest", "Europe/Chisinau", "Europe/Copenhagen", "Europe/Dublin", "Europe/Gibraltar", "Europe/Helsinki", "Europe/Istanbul", "Europe/Kaliningrad", "Europe/Kiev", "Europe/Lisbon", "Europe/London", "Europe/Luxembourg", "Europe/Madrid", "Europe/Malta", "Europe/Minsk", "Europe/Monaco", "Europe/Moscow", "Europe/Oslo", "Europe/Paris", "Europe/Prague", "Europe/Riga", "Europe/Rome", "Europe/Samara", "Europe/Simferopol", "Europe/Sofia", "Europe/Stockholm", "Europe/Tallinn", "Europe/Tirane", "Europe/Uzhgorod", "Europe/Vaduz", "Europe/Vienna", "Europe/Vilnius", "Europe/Volgograd", "Europe/Warsaw", "Europe/Zaporozhye", "Europe/Zurich", "GMT", "Indian/Antananarivo", "Indian/Chagos", "Indian/Christmas", "Indian/Cocos", "Indian/Comoro", "Indian/Kerguelen", "Indian/Mahe", "Indian/Maldives", "Indian/Mauritius", "Indian/Mayotte", "Indian/Reunion", "Pacific/Apia", "Pacific/Auckland", "Pacific/Chatham", "Pacific/Easter", "Pacific/Efate", "Pacific/Enderbury", "Pacific/Fakaofo", "Pacific/Fiji", "Pacific/Funafuti", "Pacific/Galapagos", "Pacific/Gambier", "Pacific/Guadalcanal", "Pacific/Guam", "Pacific/Honolulu", "Pacific/Johnston", "Pacific/Kiritimati", "Pacific/Kosrae", "Pacific/Kwajalein", "Pacific/Majuro", "Pacific/Marquesas", "Pacific/Midway", "Pacific/Nauru", "Pacific/Niue", "Pacific/Norfolk", "Pacific/Noumea", "Pacific/Pago_Pago", "Pacific/Palau", "Pacific/Pitcairn", "Pacific/Ponape", "Pacific/Port_Moresby", "Pacific/Rarotonga", "Pacific/Saipan", "Pacific/Tahiti", "Pacific/Tarawa", "Pacific/Tongatapu", "Pacific/Truk", "Pacific/Wake", "Pacific/Wallis", "US/Alaska", "US/Arizona", "US/Central", "US/Eastern", "US/Hawaii", "US/Mountain", "US/Pacific", "UTC"];
 });
 
-;require.register("initialize", function(exports, require, module) {
+;require.register("initialize.coffee", function(exports, require, module) {
 var app, colorSet;
 
 app = require('application');
@@ -1141,7 +1192,7 @@ window.onerror = function(msg, url, line, col, error) {
 };
 
 $(function() {
-  var data, e, error1, exception, xhr;
+  var data, e, exception, xhr;
   try {
     moment.locale(window.locale);
     ColorHash.addScheme('cozy', colorSet);
@@ -1229,7 +1280,7 @@ $(function() {
 });
 });
 
-;require.register("lib/base_view", function(exports, require, module) {
+;require.register("lib/base_view.coffee", function(exports, require, module) {
 var BaseView,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty,
@@ -1369,7 +1420,7 @@ module.exports = BaseView = (function(superClass) {
 })(Backbone.View);
 });
 
-;require.register("lib/modal", function(exports, require, module) {
+;require.register("lib/modal.coffee", function(exports, require, module) {
 var Modal,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
@@ -1539,7 +1590,7 @@ Modal.error = function(text, cb) {
 module.exports = Modal;
 });
 
-;require.register("lib/popover_screen_view", function(exports, require, module) {
+;require.register("lib/popover_screen_view.coffee", function(exports, require, module) {
 var PopoverScreenView,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -1611,7 +1662,7 @@ module.exports = PopoverScreenView = (function(superClass) {
 })(Backbone.View);
 });
 
-;require.register("lib/popover_view", function(exports, require, module) {
+;require.register("lib/popover_view.coffee", function(exports, require, module) {
 var BaseView, PopoverView,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -1752,8 +1803,8 @@ module.exports = PopoverView = (function(superClass) {
       left = targetLeftBorder + (popoverWidth / 2) + popoverMargin;
     }
     oneRowHeight = containerHeight / 6;
-    popoverOverflowWindow = (targetOffset.top + windowHeight) > containerHeight;
-    if (popoverOverflowWindow) {
+    popoverOverflowWindow = (targetOffset.top + popoverHeight) > containerHeight;
+    if (false) {
       topOffset = (windowHeight - popoverHeight) / 2;
       top = topOffset + "px";
       bottom = 'auto';
@@ -1789,7 +1840,7 @@ module.exports = PopoverView = (function(superClass) {
 })(BaseView);
 });
 
-;require.register("lib/popup_view", function(exports, require, module) {
+;require.register("lib/popup_view.coffee", function(exports, require, module) {
 var BaseView, PopupView,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -1828,7 +1879,7 @@ module.exports = PopupView = (function(superClass) {
 })(BaseView);
 });
 
-;require.register("lib/random", function(exports, require, module) {
+;require.register("lib/random.coffee", function(exports, require, module) {
 module.exports.randomString = function(length) {
   var string;
   if (length == null) {
@@ -1842,7 +1893,7 @@ module.exports.randomString = function(length) {
 };
 });
 
-;require.register("lib/request", function(exports, require, module) {
+;require.register("lib/request.coffee", function(exports, require, module) {
 exports.request = function(type, url, data, callback) {
   var body, fired, req;
   body = data != null ? JSON.stringify(data) : null;
@@ -1902,7 +1953,7 @@ exports.exist = function(id, callback) {
 };
 });
 
-;require.register("lib/socket_listener", function(exports, require, module) {
+;require.register("lib/socket_listener.coffee", function(exports, require, module) {
 var SocketListener,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
@@ -2017,7 +2068,7 @@ SocketListener = (function(superClass) {
 module.exports = new SocketListener();
 });
 
-;require.register("lib/today_checker", function(exports, require, module) {
+;require.register("lib/today_checker.coffee", function(exports, require, module) {
 module.exports = function(router) {
   var waitToChangeToday;
   return (waitToChangeToday = function() {
@@ -2038,7 +2089,7 @@ module.exports = function(router) {
 };
 });
 
-;require.register("lib/view", function(exports, require, module) {
+;require.register("lib/view.coffee", function(exports, require, module) {
 var View,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -2079,7 +2130,7 @@ module.exports = View = (function(superClass) {
 })(Backbone.View);
 });
 
-;require.register("lib/view_collection", function(exports, require, module) {
+;require.register("lib/view_collection.coffee", function(exports, require, module) {
 var BaseView, ViewCollection,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
@@ -2200,7 +2251,7 @@ module.exports = ViewCollection = (function(superClass) {
 })(BaseView);
 });
 
-;require.register("locales/ar", function(exports, require, module) {
+;require.register("locales/ar.json", function(exports, require, module) {
 module.exports = {
     "calendar list title": "التقاويم",
     "sync settings button label": "Settings",
@@ -2472,7 +2523,7 @@ module.exports = {
 };
 });
 
-require.register("locales/cs", function(exports, require, module) {
+require.register("locales/cs.json", function(exports, require, module) {
 module.exports = {
     "calendar list title": "Calendars",
     "sync settings button label": "Settings",
@@ -2744,7 +2795,7 @@ module.exports = {
 };
 });
 
-require.register("locales/de", function(exports, require, module) {
+require.register("locales/de.json", function(exports, require, module) {
 module.exports = {
     "calendar list title": "Kalender",
     "sync settings button label": "Einstellungen",
@@ -3016,7 +3067,7 @@ module.exports = {
 };
 });
 
-require.register("locales/en", function(exports, require, module) {
+require.register("locales/en.json", function(exports, require, module) {
 module.exports = {
   "calendar list title": "Calendars",
   "sync settings button label": "Settings",
@@ -3034,6 +3085,10 @@ module.exports = {
   "invite": "Invite",
   "close": "Close",
   "delete": "Delete",
+  "default calendar": "Default calendar",
+  "default calendar change error": "An error occured while saving default calendar.",
+  "default calendar change loading": "Savnig default calendar change.",
+  "default calendar change success": "Default calendar successfully changed!",
   "change color": "Change color",
   "rename": "Rename",
   "export": "Export",
@@ -3290,12 +3345,13 @@ module.exports = {
   "email update content": "An event you were invited to has changed:\n%{description} %{place}\nOn %{date}\n\nI'm still going\n%{url}?status=ACCEPTED&key=%{key}\n\nI'm not going anymore\n%{url}?status=DECLINED&key=%{key}",
   "email delete title": "This event has been canceled: %{description}",
   "email delete content": "This event has been canceled:\n%{description} %{place}\nOn %{date}",
-  "invalid recurring rule": "The recurring rule is invalid"
+  "invalid recurring rule": "The recurring rule is invalid",
+  "shared events": "Shared events"
 }
 ;
 });
 
-require.register("locales/eo", function(exports, require, module) {
+require.register("locales/eo.json", function(exports, require, module) {
 module.exports = {
     "calendar list title": "Kalendaroj",
     "sync settings button label": "Settings",
@@ -3567,7 +3623,7 @@ module.exports = {
 };
 });
 
-require.register("locales/es", function(exports, require, module) {
+require.register("locales/es.json", function(exports, require, module) {
 module.exports = {
     "calendar list title": "Agendas",
     "sync settings button label": "Ajustes",
@@ -3839,7 +3895,7 @@ module.exports = {
 };
 });
 
-require.register("locales/fr", function(exports, require, module) {
+require.register("locales/fr.json", function(exports, require, module) {
 module.exports = {
     "calendar list title": "Agendas",
     "sync settings button label": "Paramètres",
@@ -4112,7 +4168,7 @@ module.exports = {
 ;
 });
 
-require.register("locales/id", function(exports, require, module) {
+require.register("locales/id.json", function(exports, require, module) {
 module.exports = {
     "calendar list title": "Calendars",
     "sync settings button label": "Settings",
@@ -4384,7 +4440,7 @@ module.exports = {
 };
 });
 
-require.register("locales/it", function(exports, require, module) {
+require.register("locales/it.json", function(exports, require, module) {
 module.exports = {
     "calendar list title": "Calendari",
     "sync settings button label": "Settings",
@@ -4656,7 +4712,7 @@ module.exports = {
 };
 });
 
-require.register("locales/ja", function(exports, require, module) {
+require.register("locales/ja.json", function(exports, require, module) {
 module.exports = {
     "calendar list title": "カレンダー",
     "sync settings button label": "設定",
@@ -4928,7 +4984,7 @@ module.exports = {
 };
 });
 
-require.register("locales/ko", function(exports, require, module) {
+require.register("locales/ko.json", function(exports, require, module) {
 module.exports = {
     "calendar list title": "캘린더",
     "sync settings button label": "설정",
@@ -5200,279 +5256,7 @@ module.exports = {
 };
 });
 
-require.register("locales/nl", function(exports, require, module) {
-module.exports = {
-    "calendar list title": "Kalenders",
-    "sync settings button label": "Instellingen",
-    "default calendar name": "mijn kalender",
-    "Add": "Voeg toe",
-    "event": "Gebeurtenis",
-    "upcoming events": "Komende gebeurtenissen",
-    "create event": "Gebeurtenis make",
-    "edit event": "Gebeurtenis aanpassen",
-    "edit": "Aanpassen",
-    "save": "Opslaan",
-    "create": "Maken",
-    "create calendar": "Creëer nieuwe kalender",
-    "creation": "Maken",
-    "invite": "Nodig uit",
-    "close": "Sluiten",
-    "delete": "Verwijderen",
-    "change color": "Verander kleur",
-    "rename": "Hernoem",
-    "export": "Exporteer",
-    "remove": "Verwijder gebeurtenis",
-    "duplicate": "Dupliceer gebeurtenis",
-    "Place": "Plaats",
-    "all day": "Hele dag",
-    "All day": "Hele dag",
-    "description": "Beschrijving",
-    "date": "datum",
-    "Day": "Dag",
-    "days": "dagen",
-    "Edit": "Aanpassen",
-    "Email": "E-mail",
-    "Import": "Importeren",
-    "Export": "Exporteer",
-    "show": "Toon",
-    "hide": "Verberg",
-    "List": "Lijst",
-    "list": "lijst",
-    "Calendar": "Kalender",
-    "calendar": "Kalender",
-    "Sync": "Synchroniseer",
-    "ie: 9:00 important meeting": "b.v.: 9:00 belangrijke vergadring",
-    "Month": "Maand",
-    "Popup": "Pop-up",
-    "Switch to List": "Wissel naar lijst",
-    "Switch to Calendar": "Wissel naar Kalender",
-    "time": "tijd",
-    "Today": "Vandaag",
-    "today": "vandaag",
-    "What should I remind you ?": "Hoe zal ik je herinneren?",
-    "select an icalendar file": "Selecteer een icalender bestand",
-    "import your icalendar file": "Importeer jouw icalender bestand",
-    "confirm import": "bevestig importeren",
-    "cancel": "annuleer",
-    "Create": "Maken",
-    "Events to import": "Gebeurtenissen om te importeren",
-    "Create Event": "Maak een gebeurtenis",
-    "From [hours:minutes]": "Van [uren:minuten]",
-    "To [hours:minutes]": "Tot [uren:minuten]",
-    "To [date]": "Tot [datum]",
-    "Description": "Beschrijving",
-    "days after": "dagen na",
-    "days later": "dagen later",
-    "Week": "Week",
-    "Display": "Notificatie",
-    "DISPLAY": "Notificatie",
-    "EMAIL": "E-mail",
-    "BOTH": "E-mail & Notificatie",
-    "display previous events": "Toon vorige gebeurtenis",
-    "display next events": "Toon volgende gebeurtenis",
-    "are you sure": "Weet je het zeker?",
-    "confirm delete calendar": "Je staat op het punt om alle gebeurtenissen uit %{calenderName} te verwijderen. Weet je het zeker?",
-    "confirm delete selected calendars": "Je staat op het punt om alle kalenders te verwijderen. Weet je het zeker?",
-    "advanced": "Meer opties",
-    "enter email": "Type e-mail",
-    "ON": "aan",
-    "OFF": "uit",
-    "no description": "Geen beschrijving",
-    "add calendar": "Voeg kalender toe",
-    "new calendar": "Nieuwe kalender",
-    "multiple actions": "Meerdere acties",
-    "recurrence": "Herhaling",
-    "recurrence rule": "Herhaling regels",
-    "make reccurent": "Maak herhalend",
-    "repeat every": "Herhaal elke",
-    "no recurrence": "Geen herhaling",
-    "repeat on": "Herhaal op",
-    "repeat on date": "Herhaal op data",
-    "repeat on weekday": "Herhaal op werkdagen",
-    "repeat until": "Herhaal tot",
-    "after": "Na",
-    "repeat": "Herhaal",
-    "forever": "Voor altijd",
-    "occurences": "herhalingen",
-    "every": "Elke",
-    "minutes": "minuten",
-    "minute ": "minuut",
-    "minute": "minuut",
-    "hours": "uren",
-    "hour": "uur",
-    "day": "dag",
-    "weeks": "weken",
-    "week": "week",
-    "months": "maanden",
-    "month": "maand",
-    "years": "jaren",
-    "year": "jaar",
-    "until": "tot",
-    "for": "Voor",
-    "on": "op",
-    "on the": "op de ",
-    "th": "de",
-    "nd": "de",
-    "rd": "de",
-    "st": "de",
-    "last": "laatste",
-    "and": "en",
-    "times": "tijden",
-    "weekday": "werkdag",
-    "screen title done button": "Klaar",
-    "placeholder event title": "Gebeurtenis titel",
-    "from": "Van",
-    "placeholder from date": "Van [datum]",
-    "placeholder from time": "Van [uren:minuten]",
-    "to": "Tot",
-    "placeholder to date": "Tot [datum]",
-    "placeholder to time": "Tot [uren:minuten]",
-    "placeholder place": "Plaats",
-    "add guest button": "Voeg gast toe",
-    "guests list": "%{first} en %{smart_count} andere |||| %{first} en %{smart_count} anderen",
-    "placeholder description": "Beschrijving",
-    "no alert button": "Geen alarm",
-    "alert label": "%{smart_count} alarm gepland |||| %{smart_count} alarmen gepland",
-    "alert tooltip": "Beheer alarmen",
-    "no repeat button": "Geen herhaling",
-    "repeat tooltip": "Beheer herhalingen",
-    "more details button": "Meer optiesMeer opties",
-    "save button": "OpslaanOpslaan",
-    "create button": "Maken",
-    "duplicate event tooltip": "Dupliceer gebeurtenis",
-    "delete event tooltip": "Verwijder gebeurtenis",
-    "change calendar": "Wijzig kalender",
-    "screen confirm title": "Verwijder veranderingen",
-    "screen confirm description": "De veranderingen die je gemaakt hebt op de vorige gebeurtenis gaan verlopen. Wil je die verwijderen?",
-    "screen confirm yes button": "Verwijder veranderingen",
-    "screen confirm no button": "Terug",
-    "screen duplicate title": "Veranderingen niet opgeslagen",
-    "screen duplicate description": "Sommige veranderingen zijn niet opgeslagen in deze gebeurtenis. Als je het dupliceert zullen ze verloren gaan (maar bestaan op het duplicaat)",
-    "screen duplicate yes button": "Duplicaat",
-    "screen duplicate no button": "Blijf bewerken",
-    "dont ask again": "Niet vragen naar bevestiging bij het sluiten van de pop-over.",
-    "screen delete title": "Verwijder gebeurtenis",
-    "screen delete description": "Je staat op het punt om de gebeurtenis \"{description}\" te verwijderen. Weet je het zeker?",
-    "screen delete yes button": "Verwijderen",
-    "screen delete no button": "Annuleer",
-    "screen guest title empty": "Gast",
-    "screen guest title": "%{smart_count} gast |||| %{smart_count} gasten",
-    "screen guest input placeholder": "E-mail adressen",
-    "screen guest add button": "Voeg toe",
-    "screen guest remove tooltip": "Annuleer de uitnodiging",
-    "screen guest share with cozy tooltip": "Deel de uitnodiging met de Cozy van de gast",
-    "screen guest share with email tooltip": "Stuur de uitnodiging als een e-mail",
-    "screen description title": "Beschrijving",
-    "screen alert title empty": "Alarm",
-    "screen alert title": "%{smart_count} alarm |||| %{smart_count} alarm",
-    "screen alert default value": "Voeg nieuw alarm toe",
-    "screen alert time of event": "Tijd van de gebeurtenis",
-    "screen alert minute": "%{smart_count} minuut |||| %{smart_count} minuten",
-    "screen alert hour": "%{smart_count} uur |||| %{smart_count} uren",
-    "screen alert day": "%{smart_count} dag |||| %{smart_count} dagen",
-    "screen alert week": "%{smart_count} week |||| %{smart_count} weken",
-    "screen alert delete tooltip": "Verwijder alarm",
-    "screen alert type email": "E-mail",
-    "screen alert type notification": "Cozy notificatie",
-    "screen recurrence title": "Herhaal",
-    "screen recurrence no repeat": "Geen herhaling",
-    "screen recurrence daily": "Dagelijks",
-    "screen recurrence weekly": "Wekelijks",
-    "screen recurrence monthly": "Maandelijks",
-    "screen recurrence yearly": "Jaarlijks",
-    "screen recurrence interval label": "Interval",
-    "screen recurrence interval unit 0": "jaar |||| jaren",
-    "screen recurrence interval unit 1": "maand |||| maanden",
-    "screen recurrence interval unit 2": "week |||| weken",
-    "screen recurrence interval unit 3": "dag |||| dagen",
-    "screen recurrence interval unit": "dagen",
-    "screen recurrence days list label": "Op dagen",
-    "screen recurrence repeat by label": "Herhaal door",
-    "screen recurrence repeat by month": "Dag van de maand",
-    "screen recurrence repeat by week": "Dag van de week",
-    "screen recurrence ends label": "Eindigt:",
-    "screen recurrence ends never label": "Nooit",
-    "screen recurrence ends count label": "Na",
-    "screen recurrence ends count unit": "voorvallen",
-    "screen recurrence ends until label": "Tot",
-    "screen recurrence ends until placeholder": "Tot [datum]",
-    "screen recurrence summary label": "Samenvatting",
-    "send mails question": "Stuur een notificatie e-mail naar:",
-    "send invitations question": "Stuur een notificatie naar:",
-    "modal send mails": "Stuur een notificatie",
-    "accepted": "Geaccepteerd",
-    "declined": "Afgewezen",
-    "need action": "Geen antwoord nog",
-    "mail not sent": "Geen uitnodiging gestuurd",
-    "yes": "Ja",
-    "no": "Nee",
-    "no summary": "Er moet een samenvatting ingevuld worden.",
-    "start after end": "De start datum is na de eind datum.",
-    "invalid start date": "De start datum is ongeldig.",
-    "invalid end date": "De eind datum is ongeldig.",
-    "invalid trigg date": "De datum is ongeldig.",
-    "invalid action": "De actie is ongeldig.",
-    "server error occured": "Er is een server fout opgetreden.",
-    "synchronization": "Synchronisatie",
-    "mobile sync": "Mobiel synchronisatie (CalDAV)",
-    "link imported events with calendar": "Verbind gebeurtenissen met import in volgende kalender:",
-    "import an ical file": "Om een ICal bestand te importeren in jouw cozy kalender, druk eerst op deze knop om het alvast op te halen:",
-    "download a copy of your calendar": "Selecteer één kalender en druk dan op de exporteer knop om een kopie van de kalender als ICal bestand te downloaden:",
-    "icalendar export": "ICalender Exporteren",
-    "icalendar import": "ICalender Importeren",
-    "to sync your cal with": "Om jouw kalender met jouw apparaten te synchroniseren, moet je de volgende 2 stappen volgen:",
-    "sync headline with data": "Om jouw kalender te synchroniseren, gebruik de volgende informatie:",
-    "sync url": "URL:",
-    "sync login": "Gebruikersnaam:",
-    "sync password": "Wachtwoord:",
-    "sync help": "Ben je verdwaald? Volg de",
-    "sync help link": "stap voor stap gids!",
-    "install the sync module": "Installeer de synchronisser module uit de Cozy App Winkel",
-    "connect to it and follow": "Verbind ermee en volg de instructies voor CalDAV.",
-    "some event fail to save": "Een gebeurtenis was niet opgeslagen (er is een fout opgetreden).",
-    "imported events": "Hoeveelheid geimporteerde gebeurtenissen.",
-    "import finished": "Het importeren is nu klaar. Het tonen van alle nieuwe gebeurtenissen kost tijd. Als je ze sneller wilt laden, ververs je de hele pagina.",
-    "import error": "Er is een fout opgetreden, het importeren is mislukt.",
-    "import error occured for": "Er zijn fouten opgetreden bij het importeren van de volgende elementen:",
-    "export your calendar": "Exporteer jouw kalender",
-    "please select existing calendar": "Selecteer een bestaande kalender.",
-    "January": "januari",
-    "February": "februari",
-    "March": "maart",
-    "April": "april",
-    "May": "mei",
-    "June": "juni",
-    "July": "july",
-    "August": "augustus",
-    "September": "september",
-    "October": "oktober",
-    "November": "november",
-    "December": "december",
-    "Jan": "Jan",
-    "Feb": "Feb",
-    "Mar": "Mrt",
-    "Apr": "Apr",
-    "Jun": "Jun",
-    "Jul": "Jul",
-    "Aug": "Aug",
-    "Sep": "Sep",
-    "Oct": "Okt",
-    "Nov": "Nov",
-    "Dec": "Dec",
-    "calendar exist error": "Er bestaat al een kalender met de naam \"Nieuwe kalender\".",
-    "email date format": "Do MMMM YYYY, h:mm a",
-    "email date format allday": "Do MMMM YYYY, [hele dag]",
-    "email invitation title": "Uitnodiging voor '%{description}'",
-    "email invitation content": "Hallo, ik wil je uitnodigen voor de volgende gebeurtenis:\n\n%{description} %{place}\nop %{date}\nKun je er bij zijn?\n\nJa\n%{url}?status=ACCEPTED&key=%{key}\n\nNee\n%{url}?status=DECLINED&key=%{key}",
-    "email update title": "Gebeurtenis \"%{description}\" is veranderd",
-    "email update content": "Een gebeurtenis waarvoor je bent uitgenodigd is veranderd:\n%{description} %{place}\nOp %{date}\n\nIk kom nog steeds\n%{url}?status=ACCEPTED&key=%{key}\n\nDan kan ik niet\n%{url}?status=DECLINED&key=%{key}",
-    "email delete title": "De gebeurtenis is geannuleerd: %{description}",
-    "email delete content": "De gebeurtenis is geannuleerd:\n%{description} %{place}\nOp %{date}",
-    "invalid recurring rule": "De herhalingsregel is ongeldig"
-};
-});
-
-require.register("locales/pl", function(exports, require, module) {
+require.register("locales/pl.json", function(exports, require, module) {
 module.exports = {
     "calendar list title": "Kalendarze",
     "sync settings button label": "Settings",
@@ -5744,7 +5528,7 @@ module.exports = {
 };
 });
 
-require.register("locales/pt_BR", function(exports, require, module) {
+require.register("locales/pt_BR.json", function(exports, require, module) {
 module.exports = {
     "calendar list title": "Calendários",
     "sync settings button label": "Settings",
@@ -6016,7 +5800,7 @@ module.exports = {
 };
 });
 
-require.register("locales/ro", function(exports, require, module) {
+require.register("locales/ro.json", function(exports, require, module) {
 module.exports = {
     "calendar list title": "Calendars",
     "sync settings button label": "Settings",
@@ -6288,7 +6072,7 @@ module.exports = {
 };
 });
 
-require.register("locales/ru", function(exports, require, module) {
+require.register("locales/ru.json", function(exports, require, module) {
 module.exports = {
     "calendar list title": "Календари",
     "sync settings button label": "Настройки",
@@ -6560,7 +6344,7 @@ module.exports = {
 };
 });
 
-require.register("locales/sk", function(exports, require, module) {
+require.register("locales/sk.json", function(exports, require, module) {
 module.exports = {
     "calendar list title": "Calendars",
     "sync settings button label": "Settings",
@@ -6832,279 +6616,7 @@ module.exports = {
 };
 });
 
-require.register("locales/sq", function(exports, require, module) {
-module.exports = {
-    "calendar list title": "Kalendarë",
-    "sync settings button label": "Rregullime",
-    "default calendar name": "kalendari im",
-    "Add": "Shtoje",
-    "event": "Veprimtari",
-    "upcoming events": "Veprimtari Së Afërmi",
-    "create event": "Krijim veprimtarie",
-    "edit event": "Edicion veprimtarie",
-    "edit": "Përpunojeni",
-    "save": "Ruaje",
-    "create": "Krijoje",
-    "create calendar": "Krijoni Kalendar të ri",
-    "creation": "Krijim",
-    "invite": "Ftoni",
-    "close": "Mbylle",
-    "delete": "Fshije",
-    "change color": "Ndryshoni ngjyrën",
-    "rename": "Riemërtoje",
-    "export": "Eksportoje",
-    "remove": "Hiqe veprimtarinë",
-    "duplicate": "Përsëdyte veprimtarinë",
-    "Place": "Vend",
-    "all day": "Gjithë ditën",
-    "All day": "Gjithë ditën",
-    "description": "Përshkrim",
-    "date": "datë",
-    "Day": "Ditë",
-    "days": "ditë",
-    "Edit": "Përpunojeni",
-    "Email": "Email",
-    "Import": "Importoje",
-    "Export": "Eksportoje",
-    "show": "Shfaqe",
-    "hide": "Fshihe",
-    "List": "Listë",
-    "list": "listë",
-    "Calendar": "Kalendar",
-    "calendar": "Kalendar",
-    "Sync": "Njëkohësoje",
-    "ie: 9:00 important meeting": "d.m.th.: 9:00 mbledhje me rëndësi",
-    "Month": "Muaj",
-    "Popup": "Popup",
-    "Switch to List": "Kalo te Lista",
-    "Switch to Calendar": "Kalo te Kalendari",
-    "time": "kohë",
-    "Today": "Sot",
-    "today": "sot",
-    "What should I remind you ?": "Për çfarë duhet t’ju kujtoj?",
-    "select an icalendar file": "Përzgjidhni një kartelë icalendar",
-    "import your icalendar file": "importoni kartelën tuaj kalendar icalendar",
-    "confirm import": "ripohoni importimin",
-    "cancel": "anuloje",
-    "Create": "Krijoje",
-    "Events to import": "Veprimtari për t’u importuar",
-    "Create Event": "Krijoni Veprimtari",
-    "From [hours:minutes]": "Nga [hours:minutes]",
-    "To [hours:minutes]": "Në [hours:minutes]",
-    "To [date]": "Më [date]",
-    "Description": "Përshkrim",
-    "days after": "ditë më pas",
-    "days later": "ditë më vonë",
-    "Week": "Javë",
-    "Display": "Njoftim",
-    "DISPLAY": "Njoftim",
-    "EMAIL": "Email",
-    "BOTH": "Email & Njoftim",
-    "display previous events": "Shfaq veprimtaritë e mëparshme",
-    "display next events": "Shfaq veprimtaritë pasuese",
-    "are you sure": "Jeni i sigurt?",
-    "confirm delete calendar": "Ju ndan një hap nga fshirja e krejt veprimtarive të lidhura me %{calendarName}. Jeni i sigurt?",
-    "confirm delete selected calendars": "Ju ndan një hap nga fshirja e krejt kalendarëve të përzgjedhur. Jeni i sigurt?",
-    "advanced": "Më tepër mundësi",
-    "enter email": "Jepni email",
-    "ON": "on",
-    "OFF": "off",
-    "no description": "Pa përshkrim",
-    "add calendar": "Shtoni kalendar",
-    "new calendar": "Kalendar i ri",
-    "multiple actions": "Veprime të shumëfishta",
-    "recurrence": "Ripërsëritje",
-    "recurrence rule": "Rregulla ripërsëritje",
-    "make reccurent": "Bëje ripërsëritëse",
-    "repeat every": "Përsërite çdo",
-    "no recurrence": "Pa ripërsëritje",
-    "repeat on": "Përsërite më",
-    "repeat on date": "Përsërite më datat",
-    "repeat on weekday": "Përsërite në ditë të javës",
-    "repeat until": "Përsërite deri më",
-    "after": "Pas",
-    "repeat": "Përsërite",
-    "forever": "Përgjithmonë",
-    "occurences": "occurences",
-    "every": "Çdo",
-    "minutes": "minuta",
-    "minute ": "minutë",
-    "minute": "minutë",
-    "hours": "orë",
-    "hour": "orë",
-    "day": "ditë",
-    "weeks": "javë",
-    "week": "javë",
-    "months": "muaj",
-    "month": "muaj",
-    "years": "vite",
-    "year": "vit",
-    "until": "deri më",
-    "for": "për",
-    "on": "më",
-    "on the": "on the",
-    "th": "th",
-    "nd": "nd",
-    "rd": "rd",
-    "st": "st",
-    "last": "last",
-    "and": "dhe",
-    "times": "herë",
-    "weekday": "weekday",
-    "screen title done button": "U bë",
-    "placeholder event title": "Titull veprimtarie",
-    "from": "Nga",
-    "placeholder from date": "Nga [date]",
-    "placeholder from time": "Nga [hours:minutes]",
-    "to": "Më",
-    "placeholder to date": "Më [date]",
-    "placeholder to time": "Në [hours:minutes]",
-    "placeholder place": "Vend",
-    "add guest button": "Shtoni të ftuar",
-    "guests list": "%{first} dhe %{smart_count} tjetër |||| %{first} dhe %{smart_count} të tjerë",
-    "placeholder description": "Përshkrim",
-    "no alert button": "Pa alarm",
-    "alert label": "%{smart_count} alarm i planifikuar |||| %{smart_count} alarme të planifikuar",
-    "alert tooltip": "Administroni alarme",
-    "no repeat button": "Pa përsëritje",
-    "repeat tooltip": "Administroni ripërsëritje",
-    "more details button": "Më tepër mundësi",
-    "save button": "Ruaje",
-    "create button": "Krijoje",
-    "duplicate event tooltip": "Përsëdyte veprimtarinë",
-    "delete event tooltip": "Fshije veprimtarinë",
-    "change calendar": "Ndryshoni kalendarin",
-    "screen confirm title": "Fshiji Ndryshimet",
-    "screen confirm description": "Ndryshimet që bëtë te veprimtaria e mëparshme do të humbin. Doni të fshihen ato?",
-    "screen confirm yes button": "Fshiji ndryshimet",
-    "screen confirm no button": "Mbrapsht",
-    "screen duplicate title": "Ndryshimet s’u ruajtën",
-    "screen duplicate description": "Në këtë veprimtari, disa ndryshime s’u ruajtën. Nëse e përsëdytni, këto ndryshime do të humbin (por të pranishme te përsëdytja).",
-    "screen duplicate yes button": "Përsëdyte",
-    "screen duplicate no button": "Vazhdo me përpunimin",
-    "dont ask again": "Mos pyet për ripohim kur dilet nga flluska.",
-    "screen delete title": "Fshije veprimtarinë",
-    "screen delete description": "Ju ndan një hap nga fshirja e veprimtarisë \"%{description}\". Jeni i sigurt?",
-    "screen delete yes button": "Fshije",
-    "screen delete no button": "Anuloje",
-    "screen guest title empty": "I ftuar",
-    "screen guest title": "%{smart_count} i ftuar |||| %{smart_count} të ftuar",
-    "screen guest input placeholder": "Adresë email",
-    "screen guest add button": "Shtoje",
-    "screen guest remove tooltip": "Anuloje ftesën",
-    "screen guest share with cozy tooltip": "Share the invitation with the guest's cozy",
-    "screen guest share with email tooltip": "Dërgoje ftesën si një email",
-    "screen description title": "Përshkrim",
-    "screen alert title empty": "Alarm",
-    "screen alert title": "%{smart_count} alarm |||| %{smart_count} alarme",
-    "screen alert default value": "Shtoni alarm të ri",
-    "screen alert time of event": "Kohë e veprimtarisë",
-    "screen alert minute": "%{smart_count} minutë |||| %{smart_count} minuta",
-    "screen alert hour": "%{smart_count} orë |||| %{smart_count} orë",
-    "screen alert day": "%{smart_count} ditë |||| %{smart_count} ditë",
-    "screen alert week": "%{smart_count} javë |||| %{smart_count} javë",
-    "screen alert delete tooltip": "Fshije alarmin",
-    "screen alert type email": "Email",
-    "screen alert type notification": "Njoftim nga Cozy",
-    "screen recurrence title": "Përsëritje",
-    "screen recurrence no repeat": "Pa përsëritje",
-    "screen recurrence daily": "Përditë",
-    "screen recurrence weekly": "Përjavë",
-    "screen recurrence monthly": "Çdo muaj",
-    "screen recurrence yearly": "Çdo vit",
-    "screen recurrence interval label": "Interval",
-    "screen recurrence interval unit 0": "vit |||| vjet",
-    "screen recurrence interval unit 1": "muaj |||| muaj",
-    "screen recurrence interval unit 2": "javë |||| javë",
-    "screen recurrence interval unit 3": "ditë |||| ditë",
-    "screen recurrence interval unit": "ditë",
-    "screen recurrence days list label": "Në ditët",
-    "screen recurrence repeat by label": "Përsërite sipas",
-    "screen recurrence repeat by month": "Ditë e muajit",
-    "screen recurrence repeat by week": "Ditë e javës",
-    "screen recurrence ends label": "Përfundon:",
-    "screen recurrence ends never label": "Kurrë",
-    "screen recurrence ends count label": "Pas",
-    "screen recurrence ends count unit": "occurrences",
-    "screen recurrence ends until label": "Deri më",
-    "screen recurrence ends until placeholder": "Deri më [date]",
-    "screen recurrence summary label": "Përmbledhje",
-    "send mails question": "Dërgoni një email njoftimi te:",
-    "send invitations question": "Dërgoni një ftesë te:",
-    "modal send mails": "Dërgoni një njoftim",
-    "accepted": "E pranuar",
-    "declined": "E hedhur poshtë",
-    "need action": "Ende pa përgjigje",
-    "mail not sent": "S’ka ftesë të dërguar",
-    "yes": "Po",
-    "no": "Jo",
-    "no summary": "Duhet caktuar një përmbledhje.",
-    "start after end": "Data e fillimit bie pas datës së përfundimit.",
-    "invalid start date": "Data e fillimit është e pavlefshme.",
-    "invalid end date": "Data e përfundimit është e pavlefshme.",
-    "invalid trigg date": "Data është e pavlefshme.",
-    "invalid action": "Veprimi është i pavlefshëm.",
-    "server error occured": "Ndodhi një gabim shërbyesi.",
-    "synchronization": "Njëkohësim",
-    "mobile sync": "Njëkohëzim Celulari (CalDAV)",
-    "link imported events with calendar": "Link events to import with following calendar:",
-    "import an ical file": "To import an ICal file into your cozy calendar, first click on this button to preload it:",
-    "download a copy of your calendar": "Select one calendar and then click on the export button, to download a copy of the calendar as an ICal file :",
-    "icalendar export": "Eksportim ICalendar",
-    "icalendar import": "Importim ICalendar",
-    "to sync your cal with": "Që të njëkohësoni kalendarin tuaj me pajisjet tuaja, duhet të ndiqni këta hapa",
-    "sync headline with data": "Që të njëkohësoni kalendarin tuaj, përdorni të dhënat vijuese:",
-    "sync url": "URL:",
-    "sync login": "Emër përdoruesi:",
-    "sync password": "Fjalëkalim:",
-    "sync help": "Are you lost? Follow the",
-    "sync help link": "step-by-step guide!",
-    "install the sync module": "Instaloni modulin Sync që nga Cozy App Store",
-    "connect to it and follow": "Connect to it and follow the instructions related to CalDAV.",
-    "some event fail to save": "An event was not saved (an error occured).",
-    "imported events": "Amount of imported events",
-    "import finished": "Your import is now finished. Displaying all new events take time. If you want to load them faster, refresh the whole page.",
-    "import error": "A server error occured, the import failed.",
-    "import error occured for": "Import error occured for following elements:",
-    "export your calendar": "Export your calendar",
-    "please select existing calendar": "Please select an existing calendar.",
-    "January": "January",
-    "February": "February",
-    "March": "March",
-    "April": "April",
-    "May": "May",
-    "June": "June",
-    "July": "July",
-    "August": "August",
-    "September": "September",
-    "October": "October",
-    "November": "November",
-    "December": "December",
-    "Jan": "Jan",
-    "Feb": "Feb",
-    "Mar": "Mar",
-    "Apr": "Apr",
-    "Jun": "Jun",
-    "Jul": "Jul",
-    "Aug": "Aug",
-    "Sep": "Sep",
-    "Oct": "Oct",
-    "Nov": "Nov",
-    "Dec": "Dec",
-    "calendar exist error": "A calendar named \"New Calendar\" already exists.",
-    "email date format": "MMMM Do YYYY, h:mm a",
-    "email date format allday": "MMMM Do YYYY, [gjatë gjithë ditës]",
-    "email invitation title": "Ftesë për '%{description}'",
-    "email invitation content": "Hello, I would like to invite you to the following event:\n\n%{description} %{place}\non %{date}\nWould you be there?\n\nYes\n%{url}?status=ACCEPTED&key=%{key}\n\nNo\n%{url}?status=DECLINED&key=%{key}",
-    "email update title": "Event \"%{description}\" has changed",
-    "email update content": "An event you were invited to has changed:\n%{description} %{place}\nOn %{date}\n\nI'm still going\n%{url}?status=ACCEPTED&key=%{key}\n\nI'm not going anymore\n%{url}?status=DECLINED&key=%{key}",
-    "email delete title": "Kjo veprimtari është anuluar: %{description}",
-    "email delete content": "This event has been canceled:\n%{description} %{place}\nOn %{date}",
-    "invalid recurring rule": "The recurring rule is invalid"
-};
-});
-
-require.register("locales/zh_CN", function(exports, require, module) {
+require.register("locales/zh_CN.json", function(exports, require, module) {
 module.exports = {
     "calendar list title": "日程表",
     "sync settings button label": "设置",
@@ -7376,7 +6888,7 @@ module.exports = {
 };
 });
 
-require.register("models/calendar", function(exports, require, module) {
+require.register("models/calendar.coffee", function(exports, require, module) {
 var Calendar, Tag,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -7428,7 +6940,7 @@ module.exports = Calendar = (function(superClass) {
 })(Tag);
 });
 
-;require.register("models/contact", function(exports, require, module) {
+;require.register("models/contact.coffee", function(exports, require, module) {
 var Contact,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -7453,7 +6965,7 @@ module.exports = Contact = (function(superClass) {
 })(Backbone.Model);
 });
 
-;require.register("models/event", function(exports, require, module) {
+;require.register("models/event.coffee", function(exports, require, module) {
 var Event, ScheduleItem, Sharing, request,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -7481,7 +6993,7 @@ module.exports = Event = (function(superClass) {
 
   Event.prototype.defaults = function() {
     var defaultCalendar, ref, ref1;
-    defaultCalendar = ((ref = window.app.calendars) != null ? (ref1 = ref.at(0)) != null ? ref1.get('name') : void 0 : void 0) || t('default calendar name');
+    defaultCalendar = app.settings.get('defaultCalendar') || ((ref = app.calendars) != null ? (ref1 = ref.at(0)) != null ? ref1.get('name') : void 0 : void 0) || t('default calendar name');
     return {
       details: '',
       description: '',
@@ -7825,7 +7337,7 @@ module.exports = Event = (function(superClass) {
 })(ScheduleItem);
 });
 
-;require.register("models/realevent", function(exports, require, module) {
+;require.register("models/realevent.coffee", function(exports, require, module) {
 var RealEvent,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -7883,7 +7395,7 @@ module.exports = RealEvent = (function(superClass) {
 })(Backbone.Model);
 });
 
-;require.register("models/scheduleitem", function(exports, require, module) {
+;require.register("models/scheduleitem.coffee", function(exports, require, module) {
 var H, Helpers, Modal, ScheduleItem,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -8170,8 +7682,6 @@ module.exports = ScheduleItem = (function(superClass) {
     var description, displayedTime, fcEvent;
     if (this.isAllDay()) {
       displayedTime = "";
-    } else if (this.isRecurrent()) {
-      displayedTime = moment(start).utc().format('H:mm');
     } else {
       displayedTime = start.format('H:mm');
     }
@@ -8199,7 +7709,31 @@ module.exports = ScheduleItem = (function(superClass) {
 })(Backbone.Model);
 });
 
-;require.register("models/sharing", function(exports, require, module) {
+;require.register("models/settings.coffee", function(exports, require, module) {
+var Settings,
+  extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
+  hasProp = {}.hasOwnProperty;
+
+module.exports = Settings = (function(superClass) {
+  extend(Settings, superClass);
+
+  function Settings() {
+    return Settings.__super__.constructor.apply(this, arguments);
+  }
+
+  Settings.prototype.urlRoot = 'settings';
+
+  Settings.prototype.sync = function(method, model, options) {
+    options.url = 'settings';
+    return Backbone.sync(method, model, options);
+  };
+
+  return Settings;
+
+})(Backbone.Model);
+});
+
+;require.register("models/sharing.coffee", function(exports, require, module) {
 var Sharing, request,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -8257,7 +7791,7 @@ module.exports = Sharing = (function(superClass) {
 })(Backbone.Model);
 });
 
-;require.register("models/tag", function(exports, require, module) {
+;require.register("models/tag.coffee", function(exports, require, module) {
 var Tag,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -8284,13 +7818,15 @@ module.exports = Tag = (function(superClass) {
 })(Backbone.Model);
 });
 
-;require.register("router", function(exports, require, module) {
-var CalendarView, DayBucketCollection, Event, EventPopover, ImportView, ListView, Router, SettingsModal, app, getBeginningOfWeek, helpers,
+;require.register("router.coffee", function(exports, require, module) {
+var CalendarView, DayBucketCollection, Event, EventPopover, ImportView, ListView, Router, SettingsModal, app, format, getBeginningOfWeek, helpers,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
 
 app = require('application');
+
+format = require('format');
 
 ListView = require('views/list_view');
 
@@ -8331,6 +7867,8 @@ module.exports = Router = (function(superClass) {
 
   Router.prototype.routes = {
     '': 'month',
+    'week': 'week',
+    'week/:year/:month/:day': 'week',
     'month': 'month',
     'month/:year/:month': 'month',
     'month/:year/:month/:eventid': 'month_event',
@@ -8363,17 +7901,34 @@ module.exports = Router = (function(superClass) {
     }
   };
 
+  Router.prototype.week = function(year, month, day) {
+    var hash, monthToLoad;
+    if (year != null) {
+      monthToLoad = moment(year + "/" + month, "YYYY/MM");
+      return window.app.events.loadMonth(monthToLoad, (function(_this) {
+        return function() {
+          return _this.displayCalendar('agendaWeek', year, month, day);
+        };
+      })(this));
+    } else {
+      hash = moment().format(format.WEEK_URL_HASH_FORMAT);
+      return this.navigate(hash, {
+        trigger: true
+      });
+    }
+  };
+
   Router.prototype.month = function(year, month) {
     var hash, monthToLoad;
     if (year != null) {
-      monthToLoad = moment(year + "/" + month, "YYYY/M");
+      monthToLoad = moment(year + "/" + month, "YYYY/MM");
       return window.app.events.loadMonth(monthToLoad, (function(_this) {
         return function() {
           return _this.displayCalendar('month', year, month, 1);
         };
       })(this));
     } else {
-      hash = moment().format('[month]/YYYY/M');
+      hash = moment().format(format.MONTH_URL_HASH_FORMAT);
       return this.navigate(hash, {
         trigger: true
       });
@@ -8478,7 +8033,8 @@ module.exports = Router = (function(superClass) {
           start: helpers.momentToString(options.start),
           end: helpers.momentToString(options.end),
           description: '',
-          place: ''
+          place: '',
+          calendar: window.settings["default"]
         });
         return model.fetchEditability(function(err, editable) {
           if (err) {
@@ -8523,7 +8079,7 @@ module.exports = Router = (function(superClass) {
 })(Backbone.Router);
 });
 
-;require.register("views/calendar_header", function(exports, require, module) {
+;require.register("views/calendar_header.coffee", function(exports, require, module) {
 var BaseView, CalendarHeader,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -8546,15 +8102,13 @@ module.exports = CalendarHeader = (function(superClass) {
   CalendarHeader.prototype.template = require('./templates/calendar_header');
 
   CalendarHeader.prototype.initialize = function(options) {
+    this.view = options != null ? options.view : void 0;
     this.cal = options != null ? options.cal : void 0;
     return this.isMobile = options != null ? options.isMobile : void 0;
   };
 
   CalendarHeader.prototype.getViewName = function() {
-    if (this.cal == null) {
-      return 'list';
-    }
-    return 'month';
+    return this.view;
   };
 
   CalendarHeader.prototype.getTitle = function() {
@@ -8628,6 +8182,11 @@ module.exports = CalendarHeader = (function(superClass) {
           return _this.trigger('today');
         };
       })(this),
+      'click .fc-button-week': (function(_this) {
+        return function() {
+          return _this.trigger('week');
+        };
+      })(this),
       'click .fc-button-month': (function(_this) {
         return function() {
           return _this.trigger('month');
@@ -8646,8 +8205,8 @@ module.exports = CalendarHeader = (function(superClass) {
 })(BaseView);
 });
 
-;require.register("views/calendar_view", function(exports, require, module) {
-var BaseView, CalendarView, EventSharingButtonView, Header, app, helpers,
+;require.register("views/calendar_view.coffee", function(exports, require, module) {
+var BaseView, CalendarView, EventSharingButtonView, Header, app, format, helpers,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty,
@@ -8661,6 +8220,8 @@ EventSharingButtonView = require('./pending_event_sharings_button');
 
 Header = require('./calendar_header');
 
+format = require('../format');
+
 helpers = require('helpers');
 
 module.exports = CalendarView = (function(superClass) {
@@ -8672,6 +8233,12 @@ module.exports = CalendarView = (function(superClass) {
     this.onEventDrop = bind(this.onEventDrop, this);
     this.onSelect = bind(this.onSelect, this);
     this.onChangeView = bind(this.onChangeView, this);
+    this.removeEventFromView = bind(this.removeEventFromView, this);
+    this._addReccuringEventToView = bind(this._addReccuringEventToView, this);
+    this.addFcEventToView = bind(this.addFcEventToView, this);
+    this.addEventToView = bind(this.addEventToView, this);
+    this.getPopoverContainer = bind(this.getPopoverContainer, this);
+    this.getFcEvent = bind(this.getFcEvent, this);
     this.refreshOne = bind(this.refreshOne, this);
     this.handleWindowResize = bind(this.handleWindowResize, this);
     return CalendarView.__super__.constructor.apply(this, arguments);
@@ -8684,7 +8251,7 @@ module.exports = CalendarView = (function(superClass) {
   CalendarView.prototype.initialize = function(options) {
     this.options = options;
     this.eventCollection = this.model.events;
-    this.listenTo(this.eventCollection, 'add', this.refresh);
+    this.listenTo(this.eventCollection, 'add', this.refreshOne);
     this.listenTo(this.eventCollection, 'reset', this.refresh);
     this.listenTo(this.eventCollection, 'remove', this.onRemove);
     this.listenTo(this.eventCollection, 'change', this.refreshOne);
@@ -8758,7 +8325,8 @@ module.exports = CalendarView = (function(superClass) {
     source = this.eventCollection.getFCEventSource(this.calendarsCollection);
     this.cal.fullCalendar('addEventSource', source);
     this.calHeader = new Header({
-      cal: this.cal
+      cal: this.cal,
+      view: this.view
     });
     this.calHeader.on('prev', (function(_this) {
       return function() {
@@ -8791,9 +8359,16 @@ module.exports = CalendarView = (function(superClass) {
     })(this));
     this.calHeader.on('month', (function(_this) {
       return function() {
-        return _this.clearViewComponents(function() {
-          return _this.cal.fullCalendar('changeView', 'month');
-        });
+        var hash;
+        hash = _this.getMonthUrlHash();
+        return app.router.navigate(hash, true);
+      };
+    })(this));
+    this.calHeader.on('week', (function(_this) {
+      return function() {
+        var hash;
+        hash = _this.getWeekUrlHash();
+        return app.router.navigate(hash, true);
       };
     })(this));
     this.calHeader.on('list', (function(_this) {
@@ -8836,12 +8411,12 @@ module.exports = CalendarView = (function(superClass) {
     return this.cal.fullCalendar('option', 'height', targetHeight);
   };
 
-  CalendarView.prototype.refresh = function(collection) {
+  CalendarView.prototype.refresh = function() {
     return this.cal.fullCalendar('refetchEvents');
   };
 
-  CalendarView.prototype.onCalendarCollectionChange = function(collection) {
-    return this.refresh(collection);
+  CalendarView.prototype.onCalendarCollectionChange = function() {
+    return this.refresh();
   };
 
   CalendarView.prototype.onRemove = function(model) {
@@ -8849,25 +8424,63 @@ module.exports = CalendarView = (function(superClass) {
   };
 
   CalendarView.prototype.refreshOne = function(model) {
-    var data, fcEvent, modelWasRecurrent, previousRRule;
     if (model == null) {
       return null;
     }
-    previousRRule = model.previous('rrule');
-    modelWasRecurrent = (previousRRule != null) && previousRRule !== '';
-    if (model.isRecurrent() || modelWasRecurrent) {
-      return this.refresh();
+    this.removeEventFromView(model);
+    return this.addEventToView(model);
+  };
+
+  CalendarView.prototype.getFcEvent = function(model) {
+    var fcEvent;
+    fcEvent = this.cal.fullCalendar('clientEvents', model.cid)[0];
+    return fcEvent;
+  };
+
+  CalendarView.prototype.getPopoverContainer = function() {
+    var content;
+    if (this.view === 'month') {
+      content = this.$('.fc-day-grid-container');
+    } else if (this.view === 'agendaWeek') {
+      content = this.$('.fc-widget-content');
+    } else {
+      content = this.$('.main-container');
     }
-    if (model.isAllDay()) {
-      return this.refresh();
+    return content;
+  };
+
+  CalendarView.prototype.addEventToView = function(model) {
+    if (model.isRecurrent()) {
+      return this._addReccuringEventToView(model);
+    } else {
+      return this.addFcEventToView(model.toPunctualFullCalendarEvent());
     }
-    data = model.toPunctualFullCalendarEvent();
-    fcEvent = this.cal.fullCalendar('clientEvents', data.id)[0];
+  };
+
+  CalendarView.prototype.addFcEventToView = function(fcEvent) {
+    return this.cal.fullCalendar('renderEvent', fcEvent);
+  };
+
+  CalendarView.prototype._addReccuringEventToView = function(model) {
+    var end, event, events, fcView, i, len, results, start;
+    fcView = this.cal.fullCalendar('getView');
+    start = fcView.intervalStart;
+    end = fcView.intervalEnd.add(7, 'day');
+    events = model.getRecurrentFCEventBetween(start, end);
+    results = [];
+    for (i = 0, len = events.length; i < len; i++) {
+      event = events[i];
+      results.push(this.addFcEventToView(event));
+    }
+    return results;
+  };
+
+  CalendarView.prototype.removeEventFromView = function(model) {
+    var fcEvent;
+    fcEvent = this.getFcEvent(model);
     if (fcEvent != null) {
-      _.extend(fcEvent, data);
-      this.cal.fullCalendar('updateEvent', fcEvent);
+      return this.cal.fullCalendar('removeEvents', model.cid);
     }
-    return this.refresh();
   };
 
   CalendarView.prototype.onChangeView = function(view) {
@@ -8879,7 +8492,12 @@ module.exports = CalendarView = (function(superClass) {
       this.handleWindowResize();
     }
     this.view = view.name;
-    hash = view.intervalStart.format('[month]/YYYY/M');
+    hash = view.intervalStart.format(format.MONTH_URL_HASH_FORMAT);
+    if (this.view === 'month') {
+      hash = this.getMonthUrlHash(view);
+    } else if (this.view === 'agendaWeek') {
+      hash = this.getWeekUrlHash(view);
+    }
     return app.router.navigate(hash);
   };
 
@@ -8897,11 +8515,41 @@ module.exports = CalendarView = (function(superClass) {
     return 'calendar';
   };
 
+  CalendarView.prototype.getWeekUrlHash = function(view) {
+    var begginingOfCurrentView, beginningOfTodayWeek, now;
+    now = moment();
+    if (view == null) {
+      view = this.cal.fullCalendar('getView');
+    }
+    if (view.intervalStart.month() === now.month()) {
+      beginningOfTodayWeek = now.startOf('isoWeek');
+      return beginningOfTodayWeek.format(format.WEEK_URL_HASH_FORMAT);
+    } else {
+      begginingOfCurrentView = view.intervalStart.startOf('isoWeek');
+      return begginingOfCurrentView.format(format.WEEK_URL_HASH_FORMAT);
+    }
+  };
+
+  CalendarView.prototype.getMonthUrlHash = function(view) {
+    var monthOfEndOfTheWeek;
+    if (view == null) {
+      view = this.cal.fullCalendar('getView');
+    }
+    if (view.name === 'agendaWeek') {
+      monthOfEndOfTheWeek = view.intervalEnd.startOf('month');
+      return monthOfEndOfTheWeek.format(format.MONTH_URL_HASH_FORMAT);
+    } else {
+      return view.intervalStart.format(format.MONTH_URL_HASH_FORMAT);
+    }
+  };
+
   CalendarView.prototype.onSelect = function(startDate, endDate, jsEvent, view) {
+    var content;
     if (this.view === 'month') {
       startDate.time('10:00:00.000');
       endDate.subtract(1, 'days').time('11:00:00.000');
     }
+    content = this.getPopoverContainer();
     return this.trigger('event:dialog', {
       type: 'event',
       start: helpers.ambiguousToTimezoned(startDate),
@@ -8909,7 +8557,7 @@ module.exports = CalendarView = (function(superClass) {
       target: $(jsEvent.target),
       openerEvent: jsEvent.originalEvent,
       container: this.cal,
-      content: this.$('.fc-day-grid-container')
+      content: content
     });
   };
 
@@ -8978,7 +8626,7 @@ module.exports = CalendarView = (function(superClass) {
   };
 
   CalendarView.prototype.onEventClick = function(fcEvent, jsEvent, view) {
-    var model;
+    var content, model;
     if ($(jsEvent.target).hasClass('ui-resizable-handle')) {
       return true;
     }
@@ -8989,13 +8637,14 @@ module.exports = CalendarView = (function(superClass) {
         throw new Error('wrong typed event in fc');
       }
     }).call(this);
+    content = this.getPopoverContainer();
     return this.trigger('event:dialog', {
       type: model.fcEventType,
       model: model,
       target: $(jsEvent.currentTarget),
       openerEvent: jsEvent.originalEvent,
       container: this.cal,
-      content: this.$('.fc-day-grid-container')
+      content: content
     });
   };
 
@@ -9004,7 +8653,7 @@ module.exports = CalendarView = (function(superClass) {
 })(BaseView);
 });
 
-;require.register("views/collection_counter", function(exports, require, module) {
+;require.register("views/collection_counter.coffee", function(exports, require, module) {
 var CollectionCounterView, CollectionView,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -9035,7 +8684,7 @@ module.exports = CollectionCounterView = (function(superClass) {
 })(CollectionView);
 });
 
-;require.register("views/event_popover", function(exports, require, module) {
+;require.register("views/event_popover.coffee", function(exports, require, module) {
 var Event, EventPopOver, Modal, PopoverView,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
@@ -9056,6 +8705,10 @@ module.exports = EventPopOver = (function(superClass) {
 
   function EventPopOver() {
     this.confirmClose = bind(this.confirmClose, this);
+    this.ignoreWeekGridOnCloseEvent = bind(this.ignoreWeekGridOnCloseEvent, this);
+    this.ignoreMonthLineOnCloseEvent = bind(this.ignoreMonthLineOnCloseEvent, this);
+    this.isMonthView = bind(this.isMonthView, this);
+    this.setTargetToIgnoreOnCloseEvent = bind(this.setTargetToIgnoreOnCloseEvent, this);
     return EventPopOver.__super__.constructor.apply(this, arguments);
   }
 
@@ -9105,8 +8758,28 @@ module.exports = EventPopOver = (function(superClass) {
 
   EventPopOver.prototype.afterRender = function() {
     EventPopOver.__super__.afterRender.call(this);
-    this.clickOutListener.exceptOn(this.target.closest('.fc-row').get(0));
+    return this.setTargetToIgnoreOnCloseEvent();
+  };
+
+  EventPopOver.prototype.setTargetToIgnoreOnCloseEvent = function() {
+    if (this.isMonthView()) {
+      this.ignoreMonthLineOnCloseEvent();
+    } else {
+      this.ignoreWeekGridOnCloseEvent();
+    }
     return this.context.clickOutListener = this.clickOutListener;
+  };
+
+  EventPopOver.prototype.isMonthView = function() {
+    return this.target.closest('.fc-row').get(0) != null;
+  };
+
+  EventPopOver.prototype.ignoreMonthLineOnCloseEvent = function() {
+    return this.clickOutListener.exceptOn(this.target.closest('.fc-row').get(0));
+  };
+
+  EventPopOver.prototype.ignoreWeekGridOnCloseEvent = function() {
+    return this.clickOutListener.exceptOn($('.fc-time-grid').get(0));
   };
 
   EventPopOver.prototype.onKeyUp = function(event) {
@@ -9158,7 +8831,7 @@ module.exports = EventPopOver = (function(superClass) {
 })(PopoverView);
 });
 
-;require.register("views/event_popover_screen", function(exports, require, module) {
+;require.register("views/event_popover_screen.coffee", function(exports, require, module) {
 var EventPopoverScreenView, PopoverScreenView,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -9188,7 +8861,7 @@ module.exports = EventPopoverScreenView = (function(superClass) {
 })(PopoverScreenView);
 });
 
-;require.register("views/import_event_list", function(exports, require, module) {
+;require.register("views/import_event_list.coffee", function(exports, require, module) {
 var EventCollection, EventList, EventView, ViewCollection,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -9215,7 +8888,7 @@ module.exports = EventList = (function(superClass) {
 })(ViewCollection);
 });
 
-;require.register("views/import_event_view", function(exports, require, module) {
+;require.register("views/import_event_view.coffee", function(exports, require, module) {
 var BaseView, EventView,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -9247,7 +8920,7 @@ module.exports = EventView = (function(superClass) {
 })(BaseView);
 });
 
-;require.register("views/import_view", function(exports, require, module) {
+;require.register("views/import_view.coffee", function(exports, require, module) {
 var BaseView, Calendar, ComboBox, Event, EventList, ImportView, helpers, request,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
@@ -9338,7 +9011,7 @@ module.exports = ImportView = (function(superClass) {
       })(this),
       error: (function(_this) {
         return function(xhr) {
-          var e, error, msg;
+          var e, msg;
           try {
             msg = JSON.parse(xhr.responseText).msg;
           } catch (error) {
@@ -9488,7 +9161,7 @@ module.exports = ImportView = (function(superClass) {
 })(BaseView);
 });
 
-;require.register("views/list_view", function(exports, require, module) {
+;require.register("views/list_view.coffee", function(exports, require, module) {
 var Header, ListView, ViewCollection, defaultTimezone, helpers,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
@@ -9533,11 +9206,17 @@ module.exports = ListView = (function(superClass) {
 
   ListView.prototype.afterRender = function() {
     this.calHeader = new Header({
+      view: 'list',
       isMobile: this.isMobile
     });
     this.$('#calheader').html(this.calHeader.render().$el);
     this.calHeader.on('month', function() {
-      return app.router.navigate('', {
+      return app.router.navigate('month', {
+        trigger: true
+      });
+    });
+    this.calHeader.on('week', function() {
+      return app.router.navigate('week', {
         trigger: true
       });
     });
@@ -9550,8 +9229,8 @@ module.exports = ListView = (function(superClass) {
         return _this.keepScreenFull();
       };
     })(this));
-    ListView.__super__.afterRender.apply(this, arguments);
-    return this.keepScreenFull();
+    this.keepScreenFull();
+    return ListView.__super__.afterRender.apply(this, arguments);
   };
 
   ListView.prototype.showPopover = function(jsEvent) {
@@ -9668,7 +9347,7 @@ module.exports = ListView = (function(superClass) {
 })(ViewCollection);
 });
 
-;require.register("views/list_view_bucket", function(exports, require, module) {
+;require.register("views/list_view_bucket.coffee", function(exports, require, module) {
 var BucketView, EventPopover, ViewCollection,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -9755,7 +9434,7 @@ module.exports = BucketView = (function(superClass) {
 })(ViewCollection);
 });
 
-;require.register("views/list_view_item", function(exports, require, module) {
+;require.register("views/list_view_item.coffee", function(exports, require, module) {
 var BaseView, Event, EventItemView, EventPopover,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -9835,7 +9514,7 @@ module.exports = EventItemView = (function(superClass) {
 })(BaseView);
 });
 
-;require.register("views/menu", function(exports, require, module) {
+;require.register("views/menu.coffee", function(exports, require, module) {
 var ComboBox, Event, MenuView, Tag, ViewCollection,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -9985,7 +9664,7 @@ module.exports = MenuView = (function(superClass) {
 })(ViewCollection);
 });
 
-;require.register("views/menu_item", function(exports, require, module) {
+;require.register("views/menu_item.coffee", function(exports, require, module) {
 var BaseView, MenuItemView, colorSet,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
@@ -10204,7 +9883,7 @@ module.exports = MenuItemView = (function(superClass) {
 })(BaseView);
 });
 
-;require.register("views/pending_event_sharings_button", function(exports, require, module) {
+;require.register("views/pending_event_sharings_button.coffee", function(exports, require, module) {
 var CollectionCounterView, CollectionView, PendingEventSharingsButtonView, PopupView,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -10298,7 +9977,7 @@ module.exports = PendingEventSharingsButtonView = (function(superClass) {
 })(CollectionView);
 });
 
-;require.register("views/pending_event_sharings_button_item", function(exports, require, module) {
+;require.register("views/pending_event_sharings_button_item.coffee", function(exports, require, module) {
 var BaseView, PendingEventSharingsButtonItemView,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -10371,7 +10050,7 @@ module.exports = PendingEventSharingsButtonItemView = (function(superClass) {
 })(BaseView);
 });
 
-;require.register("views/popover_screens/alert", function(exports, require, module) {
+;require.register("views/popover_screens/alert.coffee", function(exports, require, module) {
 var AlertPopoverScreen, EventPopoverScreenView, helpers,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -10558,7 +10237,7 @@ module.exports = AlertPopoverScreen = (function(superClass) {
 })(EventPopoverScreenView);
 });
 
-;require.register("views/popover_screens/confirm", function(exports, require, module) {
+;require.register("views/popover_screens/confirm.coffee", function(exports, require, module) {
 var ConfirmClosePopoverScreen, PopoverScreenView,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -10623,7 +10302,7 @@ module.exports = ConfirmClosePopoverScreen = (function(superClass) {
 })(PopoverScreenView);
 });
 
-;require.register("views/popover_screens/delete", function(exports, require, module) {
+;require.register("views/popover_screens/delete.coffee", function(exports, require, module) {
 var DeletePopoverScreen, Modal, PopoverScreenView,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -10710,7 +10389,7 @@ module.exports = DeletePopoverScreen = (function(superClass) {
 })(PopoverScreenView);
 });
 
-;require.register("views/popover_screens/details", function(exports, require, module) {
+;require.register("views/popover_screens/details.coffee", function(exports, require, module) {
 var DetailsPopoverScreen, EventPopoverScreenView,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -10749,7 +10428,7 @@ module.exports = DetailsPopoverScreen = (function(superClass) {
 })(EventPopoverScreenView);
 });
 
-;require.register("views/popover_screens/duplicate", function(exports, require, module) {
+;require.register("views/popover_screens/duplicate.coffee", function(exports, require, module) {
 var ConfirmDuplicatePopoverScreen, PopoverScreenView,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -10812,7 +10491,7 @@ module.exports = ConfirmDuplicatePopoverScreen = (function(superClass) {
 })(PopoverScreenView);
 });
 
-;require.register("views/popover_screens/guests", function(exports, require, module) {
+;require.register("views/popover_screens/guests.coffee", function(exports, require, module) {
 var EventPopoverScreenView, GuestPopoverScreen, random,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
@@ -11076,7 +10755,7 @@ module.exports = GuestPopoverScreen = (function(superClass) {
 })(EventPopoverScreenView);
 });
 
-;require.register("views/popover_screens/main", function(exports, require, module) {
+;require.register("views/popover_screens/main.coffee", function(exports, require, module) {
 var ComboBox, Event, MainPopoverScreen, Modal, PopoverScreenView, allDayDateFieldFormat, dFormat, defDatePickerOps, defTimePickerOpts, inputDateDTPickerFormat, tFormat,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
@@ -11595,7 +11274,7 @@ module.exports = MainPopoverScreen = (function(superClass) {
   };
 
   MainPopoverScreen.prototype.getRecurrenceButtonText = function() {
-    var e, error1, language, locale, rrule;
+    var e, language, locale, rrule;
     rrule = this.formModel.get('rrule');
     if ((rrule != null ? rrule.length : void 0) > 0) {
       try {
@@ -11646,7 +11325,7 @@ module.exports = MainPopoverScreen = (function(superClass) {
 })(PopoverScreenView);
 });
 
-;require.register("views/popover_screens/repeat", function(exports, require, module) {
+;require.register("views/popover_screens/repeat.coffee", function(exports, require, module) {
 var EventPopoverScreenView, NO_REPEAT, RepeatPopoverScreen, allDayDateFieldFormat, dFormat, inputDateDTPickerFormat, tFormat,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
@@ -11693,7 +11372,7 @@ module.exports = RepeatPopoverScreen = (function(superClass) {
   };
 
   RepeatPopoverScreen.prototype.getRenderData = function() {
-    var data, e, endMode, error, functions, monthlyRepeatBy, ref, ref1, rrule, rruleOptions;
+    var data, e, endMode, functions, monthlyRepeatBy, ref, ref1, rrule, rruleOptions;
     data = _.extend(RepeatPopoverScreen.__super__.getRenderData.call(this), {
       NO_REPEAT: NO_REPEAT,
       weekDays: moment.localeData()._weekdays,
@@ -11816,7 +11495,7 @@ module.exports = RepeatPopoverScreen = (function(superClass) {
       };
       summary = rrule.toText(window.t, language);
       return this.$('#summary').html(summary);
-    } catch (undefined) {}
+    } catch (error) {}
   };
 
   RepeatPopoverScreen.prototype.onLeaveScreen = function() {
@@ -11924,14 +11603,16 @@ module.exports = RepeatPopoverScreen = (function(superClass) {
 })(EventPopoverScreenView);
 });
 
-;require.register("views/settings_modal", function(exports, require, module) {
-var BaseView, ComboBox, ImportView, SettingsModals,
+;require.register("views/settings_modal.coffee", function(exports, require, module) {
+var BaseView, ComboBox, ImportView, SettingsModals, request,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty,
   indexOf = [].indexOf || function(item) { for (var i = 0, l = this.length; i < l; i++) { if (i in this && this[i] === item) return i; } return -1; };
 
 BaseView = require('lib/base_view');
+
+request = require('lib/request');
 
 ImportView = require('./import_view');
 
@@ -11941,6 +11622,7 @@ module.exports = SettingsModals = (function(superClass) {
   extend(SettingsModals, superClass);
 
   function SettingsModals() {
+    this.defaultCalendarChange = bind(this.defaultCalendarChange, this);
     this.hideOnEscape = bind(this.hideOnEscape, this);
     return SettingsModals.__super__.constructor.apply(this, arguments);
   }
@@ -11985,6 +11667,13 @@ module.exports = SettingsModals = (function(superClass) {
       el: this.$('#export-calendar'),
       source: app.calendars.toAutoCompleteSource()
     });
+    this.defaultCalendar = new ComboBox({
+      el: this.$('#default-calendar'),
+      source: app.calendars.toAutoCompleteSource(),
+      current: app.settings.get('defaultCalendar')
+    });
+    this.defaultCalendar.on('change', this.defaultCalendarChange);
+    this.defaultCalLoadingIndicator = this.$('#default-calendar-loading');
     this.$('#importviewplaceholder').append(new ImportView().render().$el);
     this.$el.modal('show');
     $(document).on('keydown', this.hideOnEscape);
@@ -12023,6 +11712,33 @@ module.exports = SettingsModals = (function(superClass) {
     }
   };
 
+  SettingsModals.prototype.defaultCalendarChange = function(value) {
+    this.defaultCalLoadingIndicator = this.$('#default-calendar-loading');
+    this.defaultCalLoadingIndicator.html(t('default calendar change loading'));
+    return app.settings.save({
+      defaultCalendar: value
+    }, {
+      success: (function(_this) {
+        return function() {
+          return _this.defaultCalLoadingIndicator.html(t('default calendar change success'));
+        };
+      })(this),
+      error: (function(_this) {
+        return function() {
+          alert(t('default calendar change error'));
+          return _this.defaultCalLoadingIndicator.html(t('default calendar change success'));
+        };
+      })(this),
+      complete: (function(_this) {
+        return function() {
+          return setTimeout(function() {
+            return _this.defaultCalLoadingIndicator.html('');
+          }, 4000);
+        };
+      })(this)
+    });
+  };
+
   SettingsModals.prototype.getPlaceholder = function(password) {
     var i, j, placeholder, ref;
     placeholder = [];
@@ -12049,7 +11765,7 @@ module.exports = SettingsModals = (function(superClass) {
 })(BaseView);
 });
 
-;require.register("views/tags", function(exports, require, module) {
+;require.register("views/tags.coffee", function(exports, require, module) {
 var BaseView, TagsView,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
@@ -12101,7 +11817,7 @@ module.exports = TagsView = (function(superClass) {
 })(BaseView);
 });
 
-;require.register("views/templates/calendar_header", function(exports, require, module) {
+;require.register("views/templates/calendar_header.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12115,7 +11831,7 @@ buf.push("<div role=\"group\" class=\"btn-group\"><span class=\"btn fc-button-pr
 buf.push("<span class=\"fc-header-title\"></span></div><!-- just preload the image for fast display when used--><img src=\"img/spinner-white.svg\" class=\"hidden\"/><div class=\"fc-header-name\">" + (jade.escape(null == (jade_interp = t('upcoming events')) ? "" : jade_interp)) + "</div><div class=\"fc-header-right\">");
 if ( !isMobile)
 {
-buf.push("<div role=\"group\" class=\"btn-group\"><span type=\"button\"" + (jade.cls(['btn','fc-button-month',active('month')], [null,null,true])) + ">" + (jade.escape(null == (jade_interp = t('month')) ? "" : jade_interp)) + "</span><span type=\"button\"" + (jade.cls(['btn','fc-button-list',active('list')], [null,null,true])) + ">" + (jade.escape(null == (jade_interp = t('list')) ? "" : jade_interp)) + "</span></div>");
+buf.push("<div role=\"group\" class=\"btn-group\"><span type=\"button\"" + (jade.cls(['btn','fc-button-month',active('month')], [null,null,true])) + ">" + (jade.escape(null == (jade_interp = t('month')) ? "" : jade_interp)) + "</span><span type=\"button\"" + (jade.cls(['btn','fc-button-week',active('agendaWeek')], [null,null,true])) + ">" + (jade.escape(null == (jade_interp = t('week')) ? "" : jade_interp)) + "</span><span type=\"button\"" + (jade.cls(['btn','fc-button-list',active('list')], [null,null,true])) + ">" + (jade.escape(null == (jade_interp = t('list')) ? "" : jade_interp)) + "</span></div>");
 }
 buf.push("</div>");}.call(this,"active" in locals_for_with?locals_for_with.active:typeof active!=="undefined"?active:undefined,"calendarMode" in locals_for_with?locals_for_with.calendarMode:typeof calendarMode!=="undefined"?calendarMode:undefined,"isMobile" in locals_for_with?locals_for_with.isMobile:typeof isMobile!=="undefined"?isMobile:undefined,"title" in locals_for_with?locals_for_with.title:typeof title!=="undefined"?title:undefined,"todaytxt" in locals_for_with?locals_for_with.todaytxt:typeof todaytxt!=="undefined"?todaytxt:undefined));;return buf.join("");
 };
@@ -12130,7 +11846,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/calendarview", function(exports, require, module) {
+;require.register("views/templates/calendarview.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12149,7 +11865,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/collection_counter", function(exports, require, module) {
+;require.register("views/templates/collection_counter.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12168,7 +11884,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/import_event", function(exports, require, module) {
+;require.register("views/templates/import_event.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12192,7 +11908,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/import_view", function(exports, require, module) {
+;require.register("views/templates/import_view.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12211,7 +11927,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/list_view", function(exports, require, module) {
+;require.register("views/templates/list_view.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12230,7 +11946,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/list_view_bucket", function(exports, require, module) {
+;require.register("views/templates/list_view_bucket.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12249,7 +11965,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/list_view_item", function(exports, require, module) {
+;require.register("views/templates/list_view_item.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12281,7 +11997,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/menu", function(exports, require, module) {
+;require.register("views/templates/menu.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12300,7 +12016,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/menu_item", function(exports, require, module) {
+;require.register("views/templates/menu_item.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12344,7 +12060,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/pending_event_sharings_button", function(exports, require, module) {
+;require.register("views/templates/pending_event_sharings_button.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12363,7 +12079,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/pending_event_sharings_button_item", function(exports, require, module) {
+;require.register("views/templates/pending_event_sharings_button_item.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12382,7 +12098,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/popover", function(exports, require, module) {
+;require.register("views/templates/popover.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12401,7 +12117,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/popover_screens/alert", function(exports, require, module) {
+;require.register("views/templates/popover_screens/alert.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12448,7 +12164,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/popover_screens/alert_row", function(exports, require, module) {
+;require.register("views/templates/popover_screens/alert_row.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12509,7 +12225,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/popover_screens/confirm", function(exports, require, module) {
+;require.register("views/templates/popover_screens/confirm.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12528,7 +12244,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/popover_screens/confirm_title", function(exports, require, module) {
+;require.register("views/templates/popover_screens/confirm_title.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12547,7 +12263,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/popover_screens/delete", function(exports, require, module) {
+;require.register("views/templates/popover_screens/delete.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12566,7 +12282,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/popover_screens/delete_title", function(exports, require, module) {
+;require.register("views/templates/popover_screens/delete_title.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12585,7 +12301,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/popover_screens/details", function(exports, require, module) {
+;require.register("views/templates/popover_screens/details.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12604,7 +12320,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/popover_screens/duplicate", function(exports, require, module) {
+;require.register("views/templates/popover_screens/duplicate.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12623,7 +12339,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/popover_screens/duplicate_title", function(exports, require, module) {
+;require.register("views/templates/popover_screens/duplicate_title.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12642,7 +12358,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/popover_screens/generic_title", function(exports, require, module) {
+;require.register("views/templates/popover_screens/generic_title.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12666,7 +12382,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/popover_screens/guest_row", function(exports, require, module) {
+;require.register("views/templates/popover_screens/guest_row.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12711,7 +12427,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/popover_screens/guests", function(exports, require, module) {
+;require.register("views/templates/popover_screens/guests.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12735,7 +12451,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/popover_screens/main", function(exports, require, module) {
+;require.register("views/templates/popover_screens/main.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12799,7 +12515,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/popover_screens/main_title", function(exports, require, module) {
+;require.register("views/templates/popover_screens/main_title.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12823,7 +12539,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/popover_screens/repeat", function(exports, require, module) {
+;require.register("views/templates/popover_screens/repeat.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12875,7 +12591,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/templates/settings_modal", function(exports, require, module) {
+;require.register("views/templates/settings_modal.jade", function(exports, require, module) {
 var __templateData = function template(locals) {
 var buf = [];
 var jade_mixins = {};
@@ -12890,7 +12606,7 @@ else
 {
 buf.push("<p>" + (jade.escape(null == (jade_interp = t('sync headline with data')) ? "" : jade_interp)) + "</p><ul><li>" + (jade.escape((jade_interp = t('sync url')) == null ? '' : jade_interp)) + " https://" + (jade.escape((jade_interp = account.domain) == null ? '' : jade_interp)) + "/public/sync/principals/me</li><li>" + (jade.escape((jade_interp = t('sync login')) == null ? '' : jade_interp)) + " " + (jade.escape((jade_interp = account.login) == null ? '' : jade_interp)) + "</li><li>" + (jade.escape((jade_interp = t('sync password') + " ") == null ? '' : jade_interp)) + "<span id=\"placeholder\">" + (jade.escape(null == (jade_interp = account.placeholder) ? "" : jade_interp)) + "</span><button id=\"show-password\" class=\"btn btn-small\">" + (jade.escape(null == (jade_interp = t('show')) ? "" : jade_interp)) + "</button><button id=\"hide-password\" class=\"btn btn-small\">" + (jade.escape(null == (jade_interp = t('hide')) ? "" : jade_interp)) + "</button></li></ul>");
 }
-buf.push("<p>" + (jade.escape(null == (jade_interp = t('sync help') + " ") ? "" : jade_interp)) + "<a href=\"https://docs.cozy.io/mobile/calendar.html\" target=\"_blank\">" + (jade.escape(null == (jade_interp = t('sync help link')) ? "" : jade_interp)) + "</a></p></section><section><h3>" + (jade.escape(null == (jade_interp = t('icalendar export')) ? "" : jade_interp)) + "</h3><p>" + (jade.escape(null == (jade_interp = t('download a copy of your calendar')) ? "" : jade_interp)) + "</p><p class=\"line\"><span class=\"surrounded-combobox\"><input id=\"export-calendar\"" + (jade.attr("value", calendar, true, false)) + "/></span><a id=\"export\" class=\"btn\">" + (jade.escape(null == (jade_interp = t('export your calendar')) ? "" : jade_interp)) + "</a></p></section><section><h3>" + (jade.escape(null == (jade_interp = t('icalendar import')) ? "" : jade_interp)) + "</h3><div id=\"importviewplaceholder\"></div></section>");}.call(this,"account" in locals_for_with?locals_for_with.account:typeof account!=="undefined"?account:undefined,"calendar" in locals_for_with?locals_for_with.calendar:typeof calendar!=="undefined"?calendar:undefined));;return buf.join("");
+buf.push("<p>" + (jade.escape(null == (jade_interp = t('sync help') + " ") ? "" : jade_interp)) + "<a href=\"https://docs.cozy.io/mobile/calendar.html\" target=\"_blank\">" + (jade.escape(null == (jade_interp = t('sync help link')) ? "" : jade_interp)) + "</a></p></section><section><h3>" + (jade.escape(null == (jade_interp = t('icalendar export')) ? "" : jade_interp)) + "</h3><p>" + (jade.escape(null == (jade_interp = t('download a copy of your calendar')) ? "" : jade_interp)) + "</p><p class=\"line\"><span class=\"surrounded-combobox\"><input id=\"export-calendar\"" + (jade.attr("value", calendar, true, false)) + "/></span><a id=\"export\" class=\"btn\">" + (jade.escape(null == (jade_interp = t('export your calendar')) ? "" : jade_interp)) + "</a></p></section><section><h3>" + (jade.escape(null == (jade_interp = t('default calendar')) ? "" : jade_interp)) + "</h3><p class=\"line\"><span class=\"surrounded-combobox\"><input id=\"default-calendar\"" + (jade.attr("value", calendar, true, false)) + "/></span></p><p id=\"default-calendar-loading\" class=\"line\"></p></section><section><h3>" + (jade.escape(null == (jade_interp = t('icalendar import')) ? "" : jade_interp)) + "</h3><div id=\"importviewplaceholder\"></div></section>");}.call(this,"account" in locals_for_with?locals_for_with.account:typeof account!=="undefined"?account:undefined,"calendar" in locals_for_with?locals_for_with.calendar:typeof calendar!=="undefined"?calendar:undefined));;return buf.join("");
 };
 if (typeof define === 'function' && define.amd) {
   define([], function() {
@@ -12903,7 +12619,7 @@ if (typeof define === 'function' && define.amd) {
 }
 });
 
-;require.register("views/toggle", function(exports, require, module) {
+;require.register("views/toggle.coffee", function(exports, require, module) {
 var BaseView, Toggle,
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -12972,7 +12688,7 @@ module.exports = Toggle = (function(superClass) {
 })(BaseView);
 });
 
-;require.register("views/widgets/combobox", function(exports, require, module) {
+;require.register("views/widgets/combobox.coffee", function(exports, require, module) {
 var BaseView, ComboBox, Tag, TagCollection,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
@@ -13030,6 +12746,7 @@ module.exports = ComboBox = (function(superClass) {
       this.$el.after(caret);
     }
     value = options.current || this.getDefaultValue();
+    this.setValue(value);
     return this.onEditionComplete(value);
   };
 
@@ -13057,7 +12774,7 @@ module.exports = ComboBox = (function(superClass) {
 
   ComboBox.prototype.getDefaultValue = function() {
     var ref;
-    return ((ref = this.source[0]) != null ? ref.label : void 0) || t('default calendar name');
+    return this.value() || ((ref = this.source[0]) != null ? ref.label : void 0) || t('default calendar name');
   };
 
   ComboBox.prototype.value = function() {
@@ -13170,5 +12887,9 @@ module.exports = ComboBox = (function(superClass) {
 })(BaseView);
 });
 
-;
+;require.register("___globals___", function(exports, require, module) {
+  
+});})();require('___globals___');
+
+
 //# sourceMappingURL=app.js.map
